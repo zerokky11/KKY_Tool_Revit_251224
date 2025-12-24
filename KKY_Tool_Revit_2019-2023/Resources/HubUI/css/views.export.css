@@ -1,0 +1,121 @@
+/* ==========================================================
+   Export Points view styles
+   ========================================================== */
+
+.kkyt-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 0;
+}
+
+.kkyt-left,
+.kkyt-right {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-soft);
+    background: var(--surface-card);
+    box-shadow: var(--shadow-soft);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.kkyt-toolbar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-soft);
+    background: var(--surface-card);
+    box-shadow: var(--shadow-soft);
+}
+
+.kkyt-list {
+    border-radius: 14px;
+    border: 1px solid var(--border-soft);
+    min-height: 220px;
+    max-height: 320px;
+    padding: 6px 10px;
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.export-file-list {
+    max-height: 320px;
+}
+
+.kkyt-file-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+}
+
+.kkyt-file-table th,
+.kkyt-file-table td {
+    padding: 8px 6px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.kkyt-file-table th:first-child,
+.kkyt-file-table td:first-child {
+    width: 42px;
+    text-align: center;
+}
+
+.kkyt-file-table tbody tr:hover {
+    background: rgba(79, 209, 255, 0.05);
+}
+
+.kkyt-hint {
+    font-size: 0.8rem;
+    color: var(--text-soft);
+}
+
+.kkyt-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.kkyt-table th,
+.kkyt-table td {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    padding: 8px 6px;
+    text-align: left;
+}
+
+.kkyt-table th {
+    color: var(--text-soft);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.kkyt-table thead th.group {
+    text-align: center;
+    color: var(--text-main);
+}
+
+.kkyt-table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.unit-toggle {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 12px;
+    border: 1px dashed var(--border-soft);
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 0.82rem;
+}
+
+.unit-toggle label {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    cursor: pointer;
+    color: var(--text-muted);
+}
