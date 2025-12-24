@@ -83,6 +83,13 @@ Namespace UI.Hub
                     End If
                 End If
             End If
+            If payload.ContainsKey("ndRound") Then
+                Dim v = payload("ndRound")
+                Dim iv As Integer
+                If Integer.TryParse(If(v, opts.NdRound).ToString(), iv) Then
+                    opts.NdRound = iv
+                End If
+            End If
             Return opts
         End Function
 
@@ -170,7 +177,7 @@ Namespace UI.Hub
             Return res
         End Function
 
-        Private Sub HandleSegmentPmsRvtPick(app As UIApplication, payload As Object)
+        Private Sub HandleSegmentPmsRvtPickFiles(app As UIApplication, payload As Object)
             Using dlg As New OpenFileDialog()
                 dlg.Filter = "Revit Files (*.rvt)|*.rvt"
                 dlg.Multiselect = True
@@ -180,14 +187,32 @@ Namespace UI.Hub
                     Return
                 End If
                 Dim files As New List(Of String)()
-                For Each f In dlg.FileNames
+                For Each f As String In dlg.FileNames
                     files.Add(f)
                 Next
-                SendToWeb("segmentpms:rvt-picked", New With {.paths = files})
+                SendToWeb("segmentpms:rvt-picked-files", New With {.paths = files})
             End Using
         End Sub
 
-        Private Sub HandleSegmentPmsExtract(app As UIApplication, payload As Object)
+        Private Sub HandleSegmentPmsRvtPickFolder(app As UIApplication, payload As Object)
+            Using dlg As New FolderBrowserDialog()
+                dlg.Description = "RVT가 있는 폴더를 선택하세요."
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
+
+                Dim files As New List(Of String)()
+                Try
+                    For Each f As String In Directory.GetFiles(dlg.SelectedPath, "*.rvt", SearchOption.TopDirectoryOnly)
+                        files.Add(f)
+                    Next
+                Catch
+                End Try
+                SendToWeb("segmentpms:rvt-picked-folder", New With {.paths = files})
+            End Using
+        End Sub
+
+        Private Sub HandleSegmentPmsExtractStart(app As UIApplication, payload As Object)
             Dim pd = ParsePayloadDict(payload)
             Dim files = ParseStringList(pd, "files")
             Dim opts = ParseExtractOptions(pd)
@@ -213,14 +238,14 @@ Namespace UI.Hub
                     Dim pipePayload = BuildPipePayload(_extractData)
                     Dim suggest = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
                     Dim pmsOpts = BuildPmsOptions()
-                    SendToWeb("segmentpms:extracted", New With {.path = dlg.FileName, .summary = summary, .pipes = pipePayload, .suggestions = suggest, .pms = pmsOpts})
+                    SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName, .summary = summary, .pipes = pipePayload, .suggestions = suggest, .pms = pmsOpts})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
             End Using
         End Sub
 
-        Private Sub HandleSegmentPmsExtractLoad(app As UIApplication, payload As Object)
+        Private Sub HandleSegmentPmsLoadExtract(app As UIApplication, payload As Object)
             Using dlg As New OpenFileDialog()
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
                 dlg.RestoreDirectory = True
@@ -249,7 +274,7 @@ Namespace UI.Hub
             End Using
         End Sub
 
-        Private Sub HandleSegmentPmsPmsRegister(app As UIApplication, payload As Object)
+        Private Sub HandleSegmentPmsRegisterPms(app As UIApplication, payload As Object)
             Dim unitPref As String = "mm"
             Dim pd = ParsePayloadDict(payload)
             If pd.ContainsKey("unit") Then
@@ -272,14 +297,13 @@ Namespace UI.Hub
                         Return
                     End If
                     Dim pmsOpts = BuildPmsOptions()
-                    Dim suggest As List(Of SegmentPmsCheckService.SuggestedMapping) = Nothing
+                    Dim suggestList As List(Of SegmentPmsCheckService.SuggestedMapping) = Nothing
                     If _extractData IsNot Nothing Then
-                        suggest = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
+                        suggestList = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
                     End If
-                    SendToWeb("segmentpms:pms-registered", New With {.path = dlg.FileName, .options = pmsOpts, .suggestions = suggest})
-                    If _extractData IsNot Nothing Then
-                        Dim suggest = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
-                        SendToWeb("segmentpms:suggestion", New With {.suggestions = suggest})
+                    SendToWeb("segmentpms:pms-registered", New With {.path = dlg.FileName, .options = pmsOpts, .suggestions = suggestList})
+                    If _extractData IsNot Nothing AndAlso suggestList IsNot Nothing Then
+                        SendToWeb("segmentpms:suggestion", New With {.suggestions = suggestList})
                     End If
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
@@ -472,7 +496,11 @@ Namespace UI.Hub
                     Dim key = cols(ci)
                     Dim v As Object = Nothing
                     item.TryGetValue(key, v)
-                    row.CreateCell(ci).SetCellValue(If(v, String.Empty).ToString())
+                    Dim cellText As String = String.Empty
+                    If v IsNot Nothing AndAlso Not TypeOf v Is DBNull Then
+                        cellText = v.ToString()
+                    End If
+                    row.CreateCell(ci).SetCellValue(cellText)
                 Next
                 rIndex += 1
             Next

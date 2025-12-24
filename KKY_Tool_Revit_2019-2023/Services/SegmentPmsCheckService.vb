@@ -900,7 +900,8 @@ Namespace Services
                     Continue For
                 End If
 
-                For Each group As RoutingPreferenceRuleGroupType In [Enum].GetValues(GetType(RoutingPreferenceRuleGroupType))
+                For Each obj As Object In [Enum].GetValues(GetType(RoutingPreferenceRuleGroupType))
+                    Dim group = CType(obj, RoutingPreferenceRuleGroupType)
                     Dim count = rpm.GetNumberOfRules(group)
                     For i As Integer = 0 To count - 1
                         Dim rule = rpm.GetRule(group, i)

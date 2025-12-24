@@ -138,11 +138,12 @@ Namespace UI.Hub
             ' 공통 Excel 동작
             map.Add("excel:open", "HandleExcelOpen")
             ' Segment ↔ PMS Check
-            map.Add("segmentpms:rvt-pick", "HandleSegmentPmsRvtPick")
-            map.Add("segmentpms:extract", "HandleSegmentPmsExtract")
-            map.Add("segmentpms:extract-load", "HandleSegmentPmsExtractLoad")
-            map.Add("segmentpms:save-result", "HandleSegmentPmsSaveResult")
-            map.Add("segmentpms:pms-register", "HandleSegmentPmsPmsRegister")
+            map.Add("segmentpms:rvt-pick-files", "HandleSegmentPmsRvtPickFiles")
+            map.Add("segmentpms:rvt-pick-folder", "HandleSegmentPmsRvtPickFolder")
+            map.Add("segmentpms:extract-start", "HandleSegmentPmsExtractStart")
+            map.Add("segmentpms:load-extract", "HandleSegmentPmsLoadExtract")
+            map.Add("segmentpms:save-excel", "HandleSegmentPmsSaveResult")
+            map.Add("segmentpms:register-pms", "HandleSegmentPmsRegisterPms")
             map.Add("segmentpms:run", "HandleSegmentPmsRun")
 
             Dim methodName As String = Nothing

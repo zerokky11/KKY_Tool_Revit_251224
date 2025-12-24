@@ -38,7 +38,7 @@ export function renderSegmentPms() {
   const opts = loadOpts();
   const state = {
     rvtList: loadRvtList(),
-    rvtChecked: new Set(),
+    rvtChecked: new Set(loadRvtList()),
     extractLoaded: false,
     extractSummary: '',
     extractPath: '',
@@ -77,11 +77,12 @@ export function renderSegmentPms() {
   const exHeader = document.createElement('div'); exHeader.className = 'section-header';
   exHeader.innerHTML = '<h3>1단계: 추출 (RVT → Excel)</h3>';
   const exActions = div('segmentpms-actions-row');
-  const btnAddRvt = cardBtn('RVT 추가(멀티선택)', () => post('segmentpms:rvt-pick', {}));
+  const btnAddRvt = cardBtn('RVT 추가(파일)', () => post('segmentpms:rvt-pick-files', {}));
+  const btnAddFolder = cardBtn('RVT 폴더 추가', () => post('segmentpms:rvt-pick-folder', {}));
   const btnRemoveSel = cardBtn('선택 제거', removeCheckedRvt);
   const btnClearAll = cardBtn('전체 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvt(); renderRvtList(); updateButtons(); });
   const btnExtract = cardBtn('추출 시작', onExtract);
-  exActions.append(btnAddRvt, btnRemoveSel, btnClearAll, btnExtract);
+  exActions.append(btnAddRvt, btnAddFolder, btnRemoveSel, btnClearAll, btnExtract);
   exHeader.append(exActions);
 
   const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table';
@@ -96,12 +97,12 @@ export function renderSegmentPms() {
   const chHeader = document.createElement('div'); chHeader.className = 'section-header';
   chHeader.innerHTML = '<h3>2단계: 검토 (추출 Excel + PMS)</h3>';
   const chActions = div('segmentpms-actions-row');
-  const btnLoadExtract = cardBtn('추출 Excel 불러오기', () => post('segmentpms:extract-load', {}));
-  const btnRegisterPms = cardBtn('PMS Excel 등록/업데이트', () => post('segmentpms:pms-register', { unit: unitSel.value }));
+  const btnLoadExtract = cardBtn('추출 Excel 불러오기', () => post('segmentpms:load-extract', {}));
+  const btnRegisterPms = cardBtn('PMS Excel 등록/업데이트', () => post('segmentpms:register-pms', { unit: unitSel.value }));
   const btnRun = cardBtn('검토 시작', onRun);
   const btnSave = cardBtn('결과 엑셀 저장', () => {
     if (!state.results) { toast('저장할 결과가 없습니다.', 'err'); return; }
-    post('segmentpms:save-result', state.results);
+    post('segmentpms:save-excel', state.results);
   });
   chActions.append(btnLoadExtract, btnRegisterPms, btnRun, btnSave);
   chHeader.append(chActions);
@@ -159,7 +160,7 @@ export function renderSegmentPms() {
     const targets = state.rvtList.filter(p => state.rvtChecked.has(p));
     if (!targets.length) { toast('추출할 RVT를 선택하세요.', 'err'); return; }
     setBusy(true, '추출 중'); state.busy = true; updateButtons();
-    post('segmentpms:extract', { files: targets, options: { ndRound: parseInt(numRound.value || '3', 10) } });
+    post('segmentpms:extract-start', { files: targets, options: { ndRound: parseInt(numRound.value || '3', 10) } });
   }
 
   function buildMapTable() {
@@ -182,10 +183,11 @@ export function renderSegmentPms() {
       const suggLabel = document.createElement('small'); suggLabel.className = 'segmentpms-suggest';
 
       const mapKey = `${row.file}|${row.pipeType}`;
+      const sugKey = () => `${row.file}|${row.pipeType}|${revSel.value}`;
       const applySuggestion = () => {
-        const sug = state.suggestions.get(mapKey);
-        if (sug && sug.pmsSegment) {
-          pmsSel.value = `${sug.cls}|||${sug.pmsSegment}`;
+        const sug = state.suggestions.get(sugKey());
+        if (sug && sug.pmsSegmentKey) {
+          pmsSel.value = `${sug.pmsClass}|||${sug.pmsSegmentKey}`;
           suggLabel.textContent = '추천 적용';
         } else {
           suggLabel.textContent = '';
@@ -197,6 +199,7 @@ export function renderSegmentPms() {
       commitMap(mapKey, currentCand(), pmsSel.value, suggLabel.textContent ? 'Suggest' : 'Manual');
 
       revSel.onchange = () => {
+        applySuggestion();
         commitMap(mapKey, currentCand(), pmsSel.value, suggLabel.textContent ? 'Suggest' : 'Manual');
       };
       pmsSel.onchange = () => {
@@ -281,23 +284,23 @@ export function renderSegmentPms() {
   function handleHost(msg) {
     if (!msg || !msg.ev) return;
     switch (msg.ev) {
-      case 'segmentpms:rvt-picked': {
+      case 'segmentpms:rvt-picked-files':
+      case 'segmentpms:rvt-picked-folder': {
         const files = Array.isArray(msg.payload?.paths) ? msg.payload.paths : [];
         files.forEach(f => { if (!state.rvtList.some(x => x.toLowerCase() === String(f).toLowerCase())) state.rvtList.push(f); });
         state.rvtChecked = new Set(files);
         persistRvt(); renderRvtList(); updateButtons();
         break;
       }
-      case 'segmentpms:extracted':
+      case 'segmentpms:extract-saved':
         setBusy(false); state.busy = false;
-        state.extractLoaded = true;
+        state.extractLoaded = false;
         state.extractSummary = msg.payload?.summary || '';
         state.extractPath = msg.payload?.path || '';
+        state.pipes = [];
+        state.mappings.clear();
+        state.results = null;
         extractInfo.textContent = `추출 완료: ${state.extractSummary} (${state.extractPath})`;
-        state.pipes = msg.payload?.pipes || [];
-        state.pmsOpts = msg.payload?.pms || state.pmsOpts;
-        state.suggestions = buildSuggestionMap(msg.payload?.suggestions || []);
-        buildMapTable();
         toast('추출을 완료했습니다.', 'ok');
         updateButtons();
         break;
@@ -306,6 +309,7 @@ export function renderSegmentPms() {
         state.extractLoaded = true;
         state.extractSummary = msg.payload?.summary || '';
         state.extractPath = msg.payload?.path || '';
+        state.results = null;
         extractInfo.textContent = `추출 로드: ${state.extractSummary} (${state.extractPath})`;
         state.pipes = msg.payload?.pipes || [];
         state.pmsOpts = msg.payload?.pms || state.pmsOpts;
@@ -349,8 +353,8 @@ function buildSuggestionMap(list) {
   const map = new Map();
   if (!Array.isArray(list)) return map;
   list.forEach(s => {
-    const key = `${s.file}|${s.pipeTypeName || s.pipeType}`;
-    map.set(key, { cls: s.pmsClass || s.pmsClassName || s.PmsClass, pmsSegment: s.pmsSegmentKey || s.PmsSegmentKey });
+    const key = `${s.file}|${s.pipeTypeName || s.pipeType}|${s.ruleIndex}`;
+    map.set(key, { pmsClass: s.pmsClass || s.PmsClass, pmsSegmentKey: s.pmsSegmentKey || s.PmsSegmentKey });
   });
   return map;
 }
