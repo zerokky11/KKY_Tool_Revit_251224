@@ -297,7 +297,7 @@ Namespace Services
                 Dim idMm As Double = id
                 Dim odMm As Double = od
 
-                If unitLabel.Contains("in", StringComparison.Ordinal) Then
+                If unitLabel.IndexOf("in", StringComparison.OrdinalIgnoreCase) >= 0 Then
                     ndMm = nd * 25.4R
                     idMm = id * 25.4R
                     odMm = od * 25.4R
@@ -1007,8 +1007,10 @@ Namespace Services
                 End If
             Next
             Dim compact = sb.ToString().Trim()
-            While compact.Contains("  ", StringComparison.Ordinal)
-                compact = compact.Replace("  ", " ", StringComparison.Ordinal)
+            Dim doubleSpaceIdx As Integer = compact.IndexOf("  ", StringComparison.Ordinal)
+            While doubleSpaceIdx >= 0
+                compact = compact.Replace("  ", " ")
+                doubleSpaceIdx = compact.IndexOf("  ", StringComparison.Ordinal)
             End While
             Return compact
         End Function
