@@ -794,7 +794,7 @@ Namespace Services
             typesCol.OfClass(GetType(PipeType))
             Dim byPipe As New Dictionary(Of String, List(Of PrepareRow))(StringComparer.OrdinalIgnoreCase)
 
-            For Each el As Element In typesCol
+            For Each el As RvtDB.Element In typesCol
                 Dim pt As PipeType = TryCast(el, PipeType)
                 If pt Is Nothing Then
                     Continue For
@@ -891,7 +891,7 @@ Namespace Services
 
             Dim col As New FilteredElementCollector(doc)
             col.OfClass(GetType(PipeType))
-            For Each el As Element In col
+            For Each el As RvtDB.Element In col
                 Dim pt As PipeType = TryCast(el, PipeType)
                 If pt Is Nothing Then
                     Continue For
@@ -949,9 +949,10 @@ Namespace Services
                 Dim fam As String = String.Empty
                 Dim typ As String = String.Empty
                 Try
-                    Dim famParam As RvtDB.Parameter = el.LookupParameter("Family")
+                    Dim revEl As RvtDB.Element = el
+                    Dim famParam As RvtDB.Parameter = revEl.LookupParameter("Family")
                     If famParam Is Nothing Then
-                        famParam = el.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_FAMILY_NAME)
+                        famParam = revEl.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_FAMILY_NAME)
                     End If
                     If famParam IsNot Nothing Then
                         fam = famParam.AsString()
@@ -959,9 +960,10 @@ Namespace Services
                 Catch
                 End Try
                 Try
-                    Dim typeParam As RvtDB.Parameter = el.LookupParameter("Type")
+                    Dim revEl As RvtDB.Element = el
+                    Dim typeParam As RvtDB.Parameter = revEl.LookupParameter("Type")
                     If typeParam Is Nothing Then
-                        typeParam = el.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
+                        typeParam = revEl.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
                     End If
                     If typeParam IsNot Nothing Then
                         typ = typeParam.AsString()
@@ -1206,8 +1208,15 @@ Namespace Services
             Return def
         End Function
 
+        Private Shared Function SafeStr(o As Object) As String
+            If o Is Nothing OrElse o Is DBNull.Value Then
+                Return String.Empty
+            End If
+            Return o.ToString().Trim()
+        End Function
+
         Private Shared Function SafeDouble(o As Object) As Double
-            If o Is Nothing Then
+            If o Is Nothing OrElse o Is DBNull.Value Then
                 Return 0
             End If
             Dim d As Double
@@ -1218,7 +1227,7 @@ Namespace Services
         End Function
 
         Private Shared Function SafeIntObj(o As Object) As Integer
-            If o Is Nothing Then
+            If o Is Nothing OrElse o Is DBNull.Value Then
                 Return 0
             End If
             Dim v As Integer
