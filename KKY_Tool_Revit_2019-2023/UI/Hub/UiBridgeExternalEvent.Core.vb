@@ -138,14 +138,12 @@ Namespace UI.Hub
             ' 공통 Excel 동작
             map.Add("excel:open", "HandleExcelOpen")
             ' Segment ↔ PMS Check
-            map.Add("segmentpms:register-pms", "HandleSegmentPmsRegister")
-            map.Add("segmentpms:load-defaultmap", "HandleSegmentPmsLoadDefault")
+            map.Add("segmentpms:rvt-pick", "HandleSegmentPmsRvtPick")
             map.Add("segmentpms:extract", "HandleSegmentPmsExtract")
-            map.Add("segmentpms:save-extract", "HandleSegmentPmsSaveExtract")
-            map.Add("segmentpms:open-extract", "HandleSegmentPmsOpenExtract")
-            map.Add("segmentpms:prepare", "HandleSegmentPmsPrepare")
+            map.Add("segmentpms:extract-load", "HandleSegmentPmsExtractLoad")
+            map.Add("segmentpms:save-result", "HandleSegmentPmsSaveResult")
+            map.Add("segmentpms:pms-register", "HandleSegmentPmsPmsRegister")
             map.Add("segmentpms:run", "HandleSegmentPmsRun")
-            map.Add("segmentpms:save-excel", "HandleSegmentPmsSaveExcel")
 
             Dim methodName As String = Nothing
             If Not map.TryGetValue(name, methodName) Then

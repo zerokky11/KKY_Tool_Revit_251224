@@ -124,3 +124,6 @@ body.kky-debug-outline * {
 .segmentpms-reglist ul { margin:8px 0 0; padding:0; list-style:none; }
 .segmentpms-reglist li { padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.05); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .segmentpms-actions-row { display:flex; gap:8px; flex-wrap:wrap; }
+.segmentpms-extract .card-btn, .segmentpms-check .card-btn { min-width:120px; }
+.segmentpms-table td small.segmentpms-suggest { display:block; margin-top:2px; color:#1f8a36; font-weight:600; }
+.segmentpms-extract table input[type="checkbox"] { width:16px; height:16px; }
