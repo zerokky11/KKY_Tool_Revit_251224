@@ -12,6 +12,7 @@ Imports Autodesk.Revit.DB.Plumbing
 Imports Autodesk.Revit.UI
 Imports NPOI.SS.UserModel
 Imports NPOI.XSSF.UserModel
+Imports RvtDB = Autodesk.Revit.DB
 Imports NpoiCellType = NPOI.SS.UserModel.CellType
 
 Namespace Services
@@ -122,7 +123,7 @@ Namespace Services
 
             Dim appObj = app.Application
             For Each p As String In valid
-                Dim doc As Document = Nothing
+                Dim doc As RvtDB.Document = Nothing
                 Try
                     Dim opt = BuildOpenOptions(options)
                     Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(p)
@@ -206,28 +207,28 @@ Namespace Services
             End If
 
             Using fs As New FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
-                Dim wb As New XSSFWorkbook(fs)
+                Dim wb As IWorkbook = New XSSFWorkbook(fs)
                 For i As Integer = 0 To wb.NumberOfSheets - 1
-                    Dim sh = wb.GetSheetAt(i)
+                    Dim sh As ISheet = wb.GetSheetAt(i)
                     If sh Is Nothing Then
                         Continue For
                     End If
                     Dim t As New DataTable(sh.SheetName)
-                    Dim head = sh.GetRow(0)
+                    Dim head As IRow = sh.GetRow(0)
                     If head Is Nothing Then
                         Continue For
                     End If
                     For ci As Integer = 0 To head.LastCellNum - 1
-                        t.Columns.Add(SafeStr(head.GetCell(ci)), GetType(String))
+                        t.Columns.Add(CellStr(head, ci), GetType(String))
                     Next
                     For r As Integer = 1 To sh.LastRowNum
-                        Dim row = sh.GetRow(r)
+                        Dim row As IRow = sh.GetRow(r)
                         If row Is Nothing Then
                             Continue For
                         End If
                         Dim dr = t.NewRow()
                         For ci As Integer = 0 To t.Columns.Count - 1
-                            dr(ci) = SafeStr(row.GetCell(ci))
+                            dr(ci) = CellStr(row, ci)
                         Next
                         t.Rows.Add(dr)
                     Next
@@ -278,15 +279,15 @@ Namespace Services
 
             Dim lastRow As Integer = sh.LastRowNum
             For i As Integer = 1 To lastRow
-                Dim row = sh.GetRow(i)
+                Dim row As IRow = sh.GetRow(i)
                 If row Is Nothing Then
                     Continue For
                 End If
-                Dim cls As String = SafeStr(row.GetCell(headerMap("class")))
-                Dim seg As String = SafeStr(row.GetCell(headerMap("segment")))
-                Dim nd As Double = SafeDbl(row.GetCell(headerMap("nd")))
-                Dim id As Double = SafeDbl(row.GetCell(headerMap("id")))
-                Dim od As Double = SafeDbl(row.GetCell(headerMap("od")))
+                Dim cls As String = CellStr(row, headerMap("class"))
+                Dim seg As String = CellStr(row, headerMap("segment"))
+                Dim nd As Double = CellDbl(row, headerMap("nd"), 0)
+                Dim id As Double = CellDbl(row, headerMap("id"), 0)
+                Dim od As Double = CellDbl(row, headerMap("od"), 0)
 
                 If String.IsNullOrWhiteSpace(seg) Then
                     Continue For
@@ -296,7 +297,7 @@ Namespace Services
                 Dim idMm As Double = id
                 Dim odMm As Double = od
 
-                If unitLabel.Contains("in") Then
+                If unitLabel.Contains("in", StringComparison.Ordinal) Then
                     ndMm = nd * 25.4R
                     idMm = id * 25.4R
                     odMm = od * 25.4R
@@ -748,12 +749,12 @@ Namespace Services
 
         Private Shared Function DetectHeader(sh As ISheet) As Dictionary(Of String, Integer)
             Dim map As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
-            Dim head = sh.GetRow(0)
+            Dim head As IRow = sh.GetRow(0)
             If head Is Nothing Then
                 Return map
             End If
             For i As Integer = 0 To head.LastCellNum - 1
-                Dim name = SafeStr(head.GetCell(i)).Trim()
+                Dim name = CellStr(head, i).Trim()
                 Dim key = NormalizeHeader(name)
                 If Not String.IsNullOrEmpty(key) AndAlso Not map.ContainsKey(key) Then
                     map(key) = i
@@ -783,7 +784,7 @@ Namespace Services
             End Select
         End Function
 
-        Private Shared Function CollectPipeTypeSegmentCandidates(doc As Document, filePath As String) As List(Of PreparePipeInfo)
+        Private Shared Function CollectPipeTypeSegmentCandidates(doc As RvtDB.Document, filePath As String) As List(Of PreparePipeInfo)
             Dim result As New List(Of PreparePipeInfo)()
             If doc Is Nothing Then
                 Return result
@@ -841,7 +842,7 @@ Namespace Services
             Return result
         End Function
 
-        Private Shared Function CollectSegmentSizes(doc As Document, segIds As IEnumerable(Of Integer), filePath As String, ndRound As Integer) As List(Of ExtractSizeRow)
+        Private Shared Function CollectSegmentSizes(doc As RvtDB.Document, segIds As IEnumerable(Of Integer), filePath As String, ndRound As Integer) As List(Of ExtractSizeRow)
             Dim res As New List(Of ExtractSizeRow)()
             If doc Is Nothing Then
                 Return res
@@ -882,7 +883,7 @@ Namespace Services
             Return res
         End Function
 
-        Private Shared Function CollectRouting(doc As Document, filePath As String) As List(Of RoutingRow)
+        Private Shared Function CollectRouting(doc As RvtDB.Document, filePath As String) As List(Of RoutingRow)
             Dim res As New List(Of RoutingRow)()
             If doc Is Nothing Then
                 Return res
@@ -936,21 +937,21 @@ Namespace Services
             Public Property PartName As String = String.Empty
         End Class
 
-        Private Shared Function ToSegmentKey(doc As Document, segId As ElementId) As String
+        Private Shared Function ToSegmentKey(doc As RvtDB.Document, segId As RvtDB.ElementId) As String
             If doc Is Nothing Then
                 Return String.Empty
             End If
             Try
-                Dim el As Element = doc.GetElement(segId)
+                Dim el As RvtDB.Element = doc.GetElement(segId)
                 If el Is Nothing Then
                     Return segId.IntegerValue.ToString(CultureInfo.InvariantCulture)
                 End If
                 Dim fam As String = String.Empty
                 Dim typ As String = String.Empty
                 Try
-                    Dim famParam As Parameter = el.LookupParameter("Family")
+                    Dim famParam As RvtDB.Parameter = el.LookupParameter("Family")
                     If famParam Is Nothing Then
-                        famParam = el.get_Parameter(BuiltInParameter.ALL_MODEL_FAMILY_NAME)
+                        famParam = el.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_FAMILY_NAME)
                     End If
                     If famParam IsNot Nothing Then
                         fam = famParam.AsString()
@@ -958,9 +959,9 @@ Namespace Services
                 Catch
                 End Try
                 Try
-                    Dim typeParam As Parameter = el.LookupParameter("Type")
+                    Dim typeParam As RvtDB.Parameter = el.LookupParameter("Type")
                     If typeParam Is Nothing Then
-                        typeParam = el.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_NAME)
+                        typeParam = el.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
                     End If
                     If typeParam IsNot Nothing Then
                         typ = typeParam.AsString()
@@ -1006,8 +1007,8 @@ Namespace Services
                 End If
             Next
             Dim compact = sb.ToString().Trim()
-            While compact.Contains("  ")
-                compact = compact.Replace("  ", " ")
+            While compact.Contains("  ", StringComparison.Ordinal)
+                compact = compact.Replace("  ", " ", StringComparison.Ordinal)
             End While
             Return compact
         End Function
@@ -1136,43 +1137,71 @@ Namespace Services
             Public Property DefaultRuleIndex As Integer
         End Class
 
-        Private Shared Function SafeStr(cell As ICell) As String
+        Private Shared Function CellStr(row As IRow, col As Integer) As String
+            If row Is Nothing OrElse col < 0 Then
+                Return String.Empty
+            End If
+            Dim cell As ICell = row.GetCell(col)
             If cell Is Nothing Then
                 Return String.Empty
             End If
             Try
-                If cell.CellType = NpoiCellType.String Then
-                    Return cell.StringCellValue
-                End If
-                Return cell.ToString()
+                Select Case cell.CellType
+                    Case NpoiCellType.String
+                        Return cell.StringCellValue
+                    Case NpoiCellType.Boolean
+                        Return cell.BooleanCellValue.ToString(CultureInfo.InvariantCulture)
+                    Case NpoiCellType.Numeric
+                        Return cell.NumericCellValue.ToString("0.###", CultureInfo.InvariantCulture)
+                    Case NpoiCellType.Formula
+                        If cell.CachedFormulaResultType = NpoiCellType.Numeric Then
+                            Return cell.NumericCellValue.ToString("0.###", CultureInfo.InvariantCulture)
+                        End If
+                        If cell.CachedFormulaResultType = NpoiCellType.String Then
+                            Return cell.StringCellValue
+                        End If
+                    Case Else
+                        Return cell.ToString()
+                End Select
             Catch
                 Return String.Empty
             End Try
+            Return String.Empty
         End Function
 
-        Private Shared Function SafeDbl(c As ICell) As Double
-            If c Is Nothing Then
-                Return 0
+        Private Shared Function CellDbl(row As IRow, col As Integer, Optional def As Double = Double.NaN) As Double
+            If row Is Nothing OrElse col < 0 Then
+                Return def
+            End If
+            Dim cell As ICell = row.GetCell(col)
+            If cell Is Nothing Then
+                Return def
             End If
             Try
-                If c.CellType = NpoiCellType.Numeric Then
-                    Return c.NumericCellValue
-                End If
-                If c.CellType = NpoiCellType.String Then
-                    Dim txt = c.StringCellValue
-                    Dim v As Double
-                    If Double.TryParse(txt, NumberStyles.Any, CultureInfo.InvariantCulture, v) Then
-                        Return v
-                    End If
-                End If
-                If c.CellType = NpoiCellType.Formula Then
-                    If c.CachedFormulaResultType = NpoiCellType.Numeric Then
-                        Return c.NumericCellValue
-                    End If
-                End If
+                Select Case cell.CellType
+                    Case NpoiCellType.Numeric
+                        Return cell.NumericCellValue
+                    Case NpoiCellType.String
+                        Dim txt = cell.StringCellValue
+                        Dim v As Double
+                        If Double.TryParse(txt, NumberStyles.Any, CultureInfo.InvariantCulture, v) Then
+                            Return v
+                        End If
+                    Case NpoiCellType.Formula
+                        If cell.CachedFormulaResultType = NpoiCellType.Numeric Then
+                            Return cell.NumericCellValue
+                        End If
+                        If cell.CachedFormulaResultType = NpoiCellType.String Then
+                            Dim txt = cell.StringCellValue
+                            Dim v As Double
+                            If Double.TryParse(txt, NumberStyles.Any, CultureInfo.InvariantCulture, v) Then
+                                Return v
+                            End If
+                        End If
+                End Select
             Catch
             End Try
-            Return 0
+            Return def
         End Function
 
         Private Shared Function SafeDouble(o As Object) As Double
@@ -1193,6 +1222,10 @@ Namespace Services
             Dim v As Integer
             If Integer.TryParse(o.ToString(), v) Then
                 Return v
+            End If
+            Dim dbl As Double
+            If Double.TryParse(o.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, dbl) Then
+                Return CInt(Math.Truncate(dbl))
             End If
             Return 0
         End Function

@@ -177,6 +177,21 @@ Namespace UI.Hub
             Return res
         End Function
 
+        Private Shared Function SafeIntObj(o As Object, Optional def As Integer = 0) As Integer
+            If o Is Nothing Then
+                Return def
+            End If
+            Dim v As Integer
+            If Integer.TryParse(o.ToString(), v) Then
+                Return v
+            End If
+            Dim dv As Double
+            If Double.TryParse(o.ToString(), Globalization.NumberStyles.Any, Globalization.CultureInfo.InvariantCulture, dv) Then
+                Return CInt(Math.Truncate(dv))
+            End If
+            Return def
+        End Function
+
         Private Sub HandleSegmentPmsRvtPickFiles(app As UIApplication, payload As Object)
             Using dlg As New OpenFileDialog()
                 dlg.Filter = "Revit Files (*.rvt)|*.rvt"
