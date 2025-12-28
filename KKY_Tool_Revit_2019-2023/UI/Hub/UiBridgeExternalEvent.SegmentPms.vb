@@ -5,7 +5,6 @@ Imports System
 Imports System.Collections.Generic
 Imports System.Data
 Imports System.IO
-Imports System.Linq
 Imports System.Text
 Imports System.Windows.Forms
 Imports Autodesk.Revit.UI
@@ -17,145 +16,223 @@ Namespace UI.Hub
 
     Partial Public Class UiBridgeExternalEvent
 
-        Private _pmsPath As String
-        Private _pmsTable As DataTable
-        Private _pmsRows As List(Of SegmentPmsCheckService.PmsRow)
-        Private _defaultMap As Dictionary(Of String, List(Of String))
         Private _extractData As DataSet
-        Private _lastNdRound As Integer = 3
+        Private _pmsRows As List(Of SegmentPmsCheckService.PmsRow)
+        Private _pmsUnitPref As String = "mm"
+        Private _lastExtractPath As String = String.Empty
 
-        Private Shared Function PmsFolder() As String
-            Dim root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KKY_Tool_Revit", "PMS")
-            Directory.CreateDirectory(root)
-            Return root
-        End Function
-
-        Private Shared Function PmsMetaPath() As String
-            Return Path.Combine(PmsFolder(), "pms_meta.txt")
-        End Function
-
-        Private Sub SavePmsMeta(path As String, unitPref As String)
-            Try
-                Dim line = (If(path, String.Empty)).Replace(vbCr, String.Empty).Replace(vbLf, String.Empty)
-                Dim u = If(unitPref, String.Empty).Replace(vbCr, String.Empty).Replace(vbLf, String.Empty)
-                File.WriteAllText(PmsMetaPath(), line & "|" & u, Encoding.UTF8)
-            Catch
-            End Try
-        End Sub
-
-        Private Sub TryLoadPmsFromMeta()
-            If _pmsTable IsNot Nothing Then Return
-            Dim meta = PmsMetaPath()
-            If Not File.Exists(meta) Then Return
-            Try
-                Dim txt = File.ReadAllText(meta, Encoding.UTF8)
-                Dim parts = txt.Split("|"c)
-                Dim path = If(parts.Length > 0, parts(0), String.Empty)
-                Dim unitPref = If(parts.Length > 1, parts(1), "mm")
-                If String.IsNullOrWhiteSpace(path) OrElse Not File.Exists(path) Then Return
-                _pmsPath = path
-                Dim loaded = SegmentPmsCheckService.LoadPmsExcel(path, unitPref)
-                _pmsTable = loaded.Table
-                _pmsRows = loaded.Rows
-                SendToWeb("segmentpms:pms-registered", New With {.ok = True, .path = path, .options = BuildPmsOptions()})
-            Catch
-            End Try
-        End Sub
-
-        Private Sub HandleSegmentPmsRegister(app As UIApplication, payload As Object)
-            Using dlg As New OpenFileDialog()
-                dlg.Filter = "Excel (*.xlsx)|*.xlsx"
-                dlg.Title = "PMS Excel 선택"
-                dlg.RestoreDirectory = True
-                If dlg.ShowDialog() <> DialogResult.OK Then Return
-
-                Try
-                    Dim destDir = PmsFolder()
-                    Dim dest = Path.Combine(destDir, "pms_latest.xlsx")
-                    File.Copy(dlg.FileName, dest, True)
-                    _pmsPath = dest
-
-                    Dim unitPref As String = TryCast(GetProp(payload, "unit"), String)
-                    Dim loaded = SegmentPmsCheckService.LoadPmsExcel(dest, unitPref)
-                    _pmsTable = loaded.Table
-                    _pmsRows = loaded.Rows
-                    SavePmsMeta(dest, unitPref)
-
-                    If loaded.Errors IsNot Nothing AndAlso loaded.Errors.Count > 0 Then
-                        SendToWeb("segmentpms:error", New With {.message = String.Join(";", loaded.Errors)})
-                    Else
-                        SendToWeb("segmentpms:pms-registered", New With {.ok = True, .path = dest, .options = BuildPmsOptions()})
-                        SendToWeb("toast:info", New With {.message = "PMS 파일을 등록했습니다."})
-                    End If
-                Catch ex As Exception
-                    SendToWeb("segmentpms:error", New With {.message = ex.Message})
-                End Try
-            End Using
-        End Sub
-
-        Private Sub HandleSegmentPmsLoadDefault(payload As Object)
-            Using dlg As New OpenFileDialog()
-                dlg.Filter = "Text (*.txt)|*.txt|All Files (*.*)|*.*"
-                dlg.RestoreDirectory = True
-                dlg.Title = "기본 매핑 TXT 불러오기"
-                If dlg.ShowDialog() <> DialogResult.OK Then Return
-
-                Try
-                    Dim lines = File.ReadAllLines(dlg.FileName, Encoding.UTF8)
-                    _defaultMap = New Dictionary(Of String, List(Of String))(StringComparer.OrdinalIgnoreCase)
-                    For Each line In lines
-                        Dim ln = line.Trim()
-                        If String.IsNullOrEmpty(ln) Then Continue For
-                        Dim parts = ln.Split({ControlChars.Tab}, StringSplitOptions.RemoveEmptyEntries)
-                        If parts.Length < 2 Then parts = ln.Split({","c}, StringSplitOptions.RemoveEmptyEntries)
-                        If parts.Length >= 2 Then
-                            Dim rev = parts(0).Trim()
-                            Dim pms = parts(1).Trim()
-                            If Not String.IsNullOrEmpty(rev) AndAlso Not String.IsNullOrEmpty(pms) Then
-                                If Not _defaultMap.ContainsKey(rev) Then _defaultMap(rev) = New List(Of String)()
-                                If Not _defaultMap(rev).Any(Function(x) String.Equals(x, pms, StringComparison.OrdinalIgnoreCase)) Then _defaultMap(rev).Add(pms)
-                            End If
-                        End If
-                    Next
-                    Dim arr = _defaultMap.Select(Function(kv) New With {.revit = kv.Key, .pmsList = kv.Value}).ToList()
-                    SendToWeb("segmentpms:defaultmap-loaded", New With {.ok = True, .items = arr})
-                Catch ex As Exception
-                    SendToWeb("segmentpms:error", New With {.message = ex.Message})
-                End Try
-            End Using
-        End Sub
-
-        Private Sub HandleSegmentPmsExtract(app As UIApplication, payload As Object)
-            TryLoadPmsFromMeta()
-            Dim files = ParseStringList(payload, "files")
-            Dim ndRound As Integer = 3
-            Try
-                Dim v = GetProp(payload, "ndRound")
-                If v IsNot Nothing Then ndRound = Convert.ToInt32(v)
-            Catch
-            End Try
-            _lastNdRound = ndRound
-
-            If files.Count = 0 Then
-                SendToWeb("segmentpms:error", New With {.message = "등록된 RVT 파일이 없습니다. 먼저 파일을 등록하세요."})
-                Return
+        Private Shared Function ParsePayloadDict(payload As Object) As Dictionary(Of String, Object)
+            Dim dict = TryCast(payload, Dictionary(Of String, Object))
+            If dict IsNot Nothing Then
+                Return dict
             End If
 
-            Try
-                Dim ds = SegmentPmsCheckService.ExtractToDataSet(app, files, ndRound)
-                _extractData = ds
-                UpdateLastNdRoundFromExtract(ds)
-                Dim summary = BuildExtractSummary(ds)
-                Dim pipes = BuildPipePayload(ds)
-                SendToWeb("segmentpms:extracted", New With {.summary = summary, .pipes = pipes, .pms = BuildPmsOptions()})
-            Catch ex As Exception
-                SendToWeb("segmentpms:error", New With {.message = ex.Message})
-            End Try
+            Dim result As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase)
+            If payload Is Nothing Then
+                Return result
+            End If
+
+            Dim t = payload.GetType()
+            For Each p In t.GetProperties()
+                Try
+                    result(p.Name) = p.GetValue(payload, Nothing)
+                Catch
+                End Try
+            Next
+            Return result
+        End Function
+
+        Private Shared Function ParseStringList(payload As Dictionary(Of String, Object), key As String) As List(Of String)
+            Dim list As New List(Of String)()
+            If payload Is Nothing OrElse Not payload.ContainsKey(key) Then
+                Return list
+            End If
+
+            Dim raw = payload(key)
+            Dim enumerable = TryCast(raw, System.Collections.IEnumerable)
+            If enumerable IsNot Nothing AndAlso Not (TypeOf raw Is String) Then
+                For Each o As Object In enumerable
+                    Dim s = If(o, String.Empty).ToString()
+                    If Not String.IsNullOrWhiteSpace(s) AndAlso Not list.Contains(s) Then
+                        list.Add(s)
+                    End If
+                Next
+            Else
+                Dim s = If(raw, String.Empty).ToString()
+                If Not String.IsNullOrWhiteSpace(s) Then
+                    list.Add(s)
+                End If
+            End If
+            Return list
+        End Function
+
+        Private Shared Function ParseExtractOptions(payload As Dictionary(Of String, Object)) As SegmentPmsCheckService.ExtractOptions
+            Dim opts As New SegmentPmsCheckService.ExtractOptions()
+            If payload Is Nothing Then
+                Return opts
+            End If
+
+            Dim optionsObj As Object = Nothing
+            If payload.TryGetValue("options", optionsObj) Then
+                Dim dict = ParsePayloadDict(optionsObj)
+                If dict.ContainsKey("ndRound") Then
+                    Dim v = dict("ndRound")
+                    Dim iv As Integer
+                    If Integer.TryParse(If(v, 3).ToString(), iv) Then
+                        opts.NdRound = iv
+                    End If
+                End If
+            End If
+            If payload.ContainsKey("ndRound") Then
+                Dim v = payload("ndRound")
+                Dim iv As Integer
+                If Integer.TryParse(If(v, opts.NdRound).ToString(), iv) Then
+                    opts.NdRound = iv
+                End If
+            End If
+            Return opts
+        End Function
+
+        Private Shared Function GetDictValue(dict As Dictionary(Of String, Object), key As String) As Object
+            If dict Is Nothing Then
+                Return Nothing
+            End If
+            Dim val As Object = Nothing
+            If dict.TryGetValue(key, val) Then
+                Return val
+            End If
+            Return Nothing
+        End Function
+
+        Private Shared Function ParseCompareOptions(payload As Dictionary(Of String, Object)) As SegmentPmsCheckService.CompareOptions
+            Dim opts As New SegmentPmsCheckService.CompareOptions()
+            If payload Is Nothing Then
+                Return opts
+            End If
+
+            If payload.ContainsKey("ndRound") Then
+                Dim v = payload("ndRound")
+                Dim iv As Integer
+                If Integer.TryParse(If(v, 3).ToString(), iv) Then
+                    opts.NdRound = iv
+                End If
+            End If
+            If payload.ContainsKey("tolMm") Then
+                Dim v = payload("tolMm")
+                Dim dv As Double
+                If Double.TryParse(If(v, 0.01R).ToString(), dv) Then
+                    opts.TolMm = dv
+                End If
+            End If
+            Return opts
+        End Function
+
+        Private Shared Function ParseMappings(payload As Dictionary(Of String, Object)) As List(Of SegmentPmsCheckService.MappingSelection)
+            Dim res As New List(Of SegmentPmsCheckService.MappingSelection)()
+            If payload Is Nothing OrElse Not payload.ContainsKey("mappings") Then
+                Return res
+            End If
+
+            Dim raw = payload("mappings")
+            Dim arr = TryCast(raw, System.Collections.IEnumerable)
+            If arr Is Nothing OrElse TypeOf raw Is String Then
+                Return res
+            End If
+
+            For Each o In arr
+                Dim d = ParsePayloadDict(o)
+                Dim item As New SegmentPmsCheckService.MappingSelection()
+                If d.ContainsKey("file") Then
+                    item.File = If(d("file"), String.Empty).ToString()
+                End If
+                If d.ContainsKey("pipeType") Then
+                    item.PipeTypeName = If(d("pipeType"), String.Empty).ToString()
+                End If
+                If d.ContainsKey("ruleIndex") Then
+                    Dim iv As Integer
+                    If Integer.TryParse(If(d("ruleIndex"), 0).ToString(), iv) Then
+                        item.RuleIndex = iv
+                    End If
+                End If
+                If d.ContainsKey("segmentId") Then
+                    Dim iv As Integer
+                    If Integer.TryParse(If(d("segmentId"), 0).ToString(), iv) Then
+                        item.SegmentId = iv
+                    End If
+                End If
+                If d.ContainsKey("segmentKey") Then
+                    item.SegmentKey = If(d("segmentKey"), String.Empty).ToString()
+                End If
+                If d.ContainsKey("cls") Then
+                    item.SelectedClass = If(d("cls"), String.Empty).ToString()
+                End If
+                If d.ContainsKey("segment") Then
+                    item.SelectedPmsSegment = If(d("segment"), String.Empty).ToString()
+                End If
+                If d.ContainsKey("source") Then
+                    item.MappingSource = If(d("source"), String.Empty).ToString()
+                End If
+                res.Add(item)
+            Next
+            Return res
+        End Function
+
+        Private Shared Function SafeIntObj(o As Object, Optional def As Integer = 0) As Integer
+            If o Is Nothing Then
+                Return def
+            End If
+            Dim v As Integer
+            If Integer.TryParse(o.ToString(), v) Then
+                Return v
+            End If
+            Dim dv As Double
+            If Double.TryParse(o.ToString(), Globalization.NumberStyles.Any, Globalization.CultureInfo.InvariantCulture, dv) Then
+                Return CInt(Math.Truncate(dv))
+            End If
+            Return def
+        End Function
+
+        Private Sub HandleSegmentPmsRvtPickFiles(app As UIApplication, payload As Object)
+            Using dlg As New OpenFileDialog()
+                dlg.Filter = "Revit Files (*.rvt)|*.rvt"
+                dlg.Multiselect = True
+                dlg.RestoreDirectory = True
+                dlg.Title = "RVT 파일 선택"
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
+                Dim files As New List(Of String)()
+                For Each f As String In dlg.FileNames
+                    files.Add(f)
+                Next
+                SendToWeb("segmentpms:rvt-picked-files", New With {.paths = files})
+            End Using
         End Sub
 
-        Private Sub HandleSegmentPmsSaveExtract(payload As Object)
-            If _extractData Is Nothing Then
-                SendToWeb("segmentpms:error", New With {.message = "추출 데이터가 없습니다."})
+        Private Sub HandleSegmentPmsRvtPickFolder(app As UIApplication, payload As Object)
+            Using dlg As New FolderBrowserDialog()
+                dlg.Description = "RVT가 있는 폴더를 선택하세요."
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
+
+                Dim files As New List(Of String)()
+                Try
+                    For Each f As String In Directory.GetFiles(dlg.SelectedPath, "*.rvt", SearchOption.TopDirectoryOnly)
+                        files.Add(f)
+                    Next
+                Catch
+                End Try
+                SendToWeb("segmentpms:rvt-picked-folder", New With {.paths = files})
+            End Using
+        End Sub
+
+        Private Sub HandleSegmentPmsExtractStart(app As UIApplication, payload As Object)
+            Dim pd = ParsePayloadDict(payload)
+            Dim files = ParseStringList(pd, "files")
+            Dim opts = ParseExtractOptions(pd)
+            If files.Count = 0 Then
+                SendToWeb("segmentpms:error", New With {.message = "추출할 RVT 파일을 선택하세요."})
                 Return
             End If
 
@@ -163,132 +240,156 @@ Namespace UI.Hub
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
                 dlg.FileName = "SegmentPmsExtract.xlsx"
                 dlg.AddExtension = True
-                If dlg.ShowDialog() <> DialogResult.OK Then Return
+                dlg.RestoreDirectory = True
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
 
                 Try
-                    SegmentPmsCheckService.SaveExtractXlsx(_extractData, dlg.FileName)
-                    SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName})
+                    _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts)
+                    _lastExtractPath = dlg.FileName
+                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
+                    Dim summary = BuildExtractSummary(_extractData)
+                    Dim pipePayload = BuildPipePayload(_extractData)
+                    Dim suggest = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
+                    Dim pmsOpts = BuildPmsOptions()
+                    SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName, .summary = summary, .pipes = pipePayload, .suggestions = suggest, .pms = pmsOpts})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
             End Using
         End Sub
 
-        Private Sub HandleSegmentPmsOpenExtract(payload As Object)
-            TryLoadPmsFromMeta()
+        Private Sub HandleSegmentPmsLoadExtract(app As UIApplication, payload As Object)
             Using dlg As New OpenFileDialog()
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
                 dlg.RestoreDirectory = True
-                dlg.Title = "추출 XLSX 선택"
-                If dlg.ShowDialog() <> DialogResult.OK Then Return
+                dlg.Title = "추출 Excel 불러오기"
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
 
                 Try
-                    Dim ds = SegmentPmsCheckService.LoadExtractXlsx(dlg.FileName)
-                    _extractData = ds
-                    UpdateLastNdRoundFromExtract(ds)
-                    Dim summary = BuildExtractSummary(ds)
-                    SendToWeb("segmentpms:extract-opened", New With {.summary = summary, .pipes = BuildPipePayload(ds), .pms = BuildPmsOptions()})
+                    _extractData = SegmentPmsCheckService.LoadExtractFromXlsx(dlg.FileName)
+                    _lastExtractPath = dlg.FileName
+                    Dim summary = BuildExtractSummary(_extractData)
+                    Dim pipePayload = BuildPipePayload(_extractData)
+                    Dim suggest = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
+                    Dim pmsOpts = BuildPmsOptions()
+                    SendToWeb("segmentpms:extract-loaded", New With {
+                        .summary = summary,
+                        .pipes = pipePayload,
+                        .suggestions = suggest,
+                        .pms = pmsOpts,
+                        .path = dlg.FileName
+                    })
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
             End Using
         End Sub
 
-        Private Sub HandleSegmentPmsPrepare(app As UIApplication, payload As Object)
-            HandleSegmentPmsExtract(app, payload)
+        Private Sub HandleSegmentPmsRegisterPms(app As UIApplication, payload As Object)
+            Dim unitPref As String = "mm"
+            Dim pd = ParsePayloadDict(payload)
+            If pd.ContainsKey("unit") Then
+                unitPref = If(pd("unit"), "mm").ToString()
+            End If
+            Using dlg As New OpenFileDialog()
+                dlg.Filter = "Excel (*.xlsx)|*.xlsx"
+                dlg.Title = "PMS Excel 선택"
+                dlg.RestoreDirectory = True
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
+
+                Try
+                    Dim loaded = SegmentPmsCheckService.LoadPmsExcel(dlg.FileName, unitPref)
+                    _pmsRows = loaded.Rows
+                    _pmsUnitPref = unitPref
+                    If loaded.Errors IsNot Nothing AndAlso loaded.Errors.Count > 0 Then
+                        SendToWeb("segmentpms:error", New With {.message = String.Join(";", loaded.Errors)})
+                        Return
+                    End If
+                    Dim pmsOpts = BuildPmsOptions()
+                    Dim suggestList As List(Of SegmentPmsCheckService.SuggestedMapping) = Nothing
+                    If _extractData IsNot Nothing Then
+                        suggestList = SegmentPmsCheckService.SuggestMappings(_extractData, _pmsRows)
+                    End If
+                    SendToWeb("segmentpms:pms-registered", New With {.path = dlg.FileName, .options = pmsOpts, .suggestions = suggestList})
+                    If _extractData IsNot Nothing AndAlso suggestList IsNot Nothing Then
+                        SendToWeb("segmentpms:suggestion", New With {.suggestions = suggestList})
+                    End If
+                Catch ex As Exception
+                    SendToWeb("segmentpms:error", New With {.message = ex.Message})
+                End Try
+            End Using
         End Sub
 
         Private Sub HandleSegmentPmsRun(app As UIApplication, payload As Object)
             If _extractData Is Nothing Then
-                SendToWeb("segmentpms:error", New With {.message = "추출 데이터를 먼저 준비하세요."})
+                SendToWeb("segmentpms:error", New With {.message = "추출 데이터를 먼저 불러오세요."})
                 Return
             End If
-            TryLoadPmsFromMeta()
-            If _pmsTable Is Nothing Then
-                SendToWeb("segmentpms:error", New With {.message = "PMS 데이터를 등록하세요."})
+            If _pmsRows Is Nothing Then
+                SendToWeb("segmentpms:error", New With {.message = "PMS Excel을 등록하세요."})
                 Return
             End If
 
-            Dim ndRound As Integer = _lastNdRound
-            Dim tolMm As Double = 0.01R
+            Dim pd = ParsePayloadDict(payload)
+            Dim maps = ParseMappings(pd)
+            Dim opts = ParseCompareOptions(pd)
+
             Try
-                Dim v = GetProp(payload, "ndRound")
-                If v IsNot Nothing Then ndRound = Convert.ToInt32(v)
-            Catch
+                Dim run = SegmentPmsCheckService.RunCompare(_extractData, _pmsRows, maps, opts)
+                Dim compare = DataTableToObjects(run.CompareTable)
+                Dim map = DataTableToObjects(run.MapTable)
+                Dim revitRaw = DataTableToObjects(run.RevitSizeTable)
+                Dim pmsRaw = DataTableToObjects(run.PmsSizeTable)
+                Dim err = DataTableToObjects(run.ErrorTable)
+                SendToWeb("segmentpms:result", New With {
+                    .compare = compare,
+                    .map = map,
+                    .revitRaw = revitRaw,
+                    .pmsRaw = pmsRaw,
+                    .errors = err
+                })
+            Catch ex As Exception
+                SendToWeb("segmentpms:error", New With {.message = ex.Message})
             End Try
-            Try
-                Dim v = GetProp(payload, "tolMm")
-                If v IsNot Nothing Then tolMm = Convert.ToDouble(v)
-            Catch
-            End Try
-
-            Dim mappings As New List(Of SegmentPmsCheckService.MappingRequest)()
-            Dim arr = TryCast(GetProp(payload, "maps"), IEnumerable(Of Object))
-            If arr IsNot Nothing Then
-                Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                For Each o In arr
-                    Dim key = SegPmsSafeStr(GetProp(o, "file")) & "|" & SegPmsSafeStr(GetProp(o, "pipeType"))
-                    If seen.Contains(key) Then Continue For
-                    seen.Add(key)
-                    mappings.Add(New SegmentPmsCheckService.MappingRequest With {
-                        .File = SegPmsSafeStr(GetProp(o, "file")),
-                        .PipeTypeName = SegPmsSafeStr(GetProp(o, "pipeType")),
-                        .RuleIndex = SegPmsSafeInt(GetProp(o, "ruleIndex")),
-                        .SegmentId = SegPmsSafeInt(GetProp(o, "segmentId")),
-                        .SegmentKey = SegPmsSafeStr(GetProp(o, "segmentKey")),
-                        .SelectedClass = SegPmsSafeStr(GetProp(o, "cls")),
-                        .SelectedPmsSegment = SegPmsSafeStr(GetProp(o, "segment")),
-                        .MappingSource = SegPmsSafeStr(GetProp(o, "source"))
-                    })
-                Next
-            End If
-
-            Dim res = SegmentPmsCheckService.RunUsingExtract(_extractData, _pmsTable, mappings, tolMm, ndRound)
-            Dim compare = DataTableToObjects(res.CompareTable)
-            Dim map = DataTableToObjects(res.MapTable)
-            Dim revitRaw = DataTableToObjects(res.RevitSizeTable)
-            Dim pmsRaw = DataTableToObjects(res.PmsSizeTable)
-            Dim errors = DataTableToObjects(res.ErrorTable)
-
-            SendToWeb("segmentpms:result", New With {
-                .map = map,
-                .revitRaw = revitRaw,
-                .pmsRaw = pmsRaw,
-                .compare = compare,
-                .errors = errors
-            })
         End Sub
 
-        Private Sub HandleSegmentPmsSaveExcel(app As UIApplication, payload As Object)
-            If payload Is Nothing Then Return
-            Dim compare = TryCast(GetProp(payload, "compare"), IEnumerable(Of Object))
+        Private Sub HandleSegmentPmsSaveResult(app As UIApplication, payload As Object)
+            Dim pd = ParsePayloadDict(payload)
+            Dim compare = TryCast(GetDictValue(pd, "compare"), IEnumerable(Of Object))
             If compare Is Nothing Then
                 SendToWeb("segmentpms:error", New With {.message = "저장할 결과가 없습니다."})
                 Return
             End If
-
-            Dim map = TryCast(GetProp(payload, "map"), IEnumerable(Of Object))
-            Dim revitRaw = TryCast(GetProp(payload, "revitRaw"), IEnumerable(Of Object))
-            Dim pmsRaw = TryCast(GetProp(payload, "pmsRaw"), IEnumerable(Of Object))
-            Dim err = TryCast(GetProp(payload, "errors"), IEnumerable(Of Object))
+            Dim map = TryCast(GetDictValue(pd, "map"), IEnumerable(Of Object))
+            Dim revitRaw = TryCast(GetDictValue(pd, "revitRaw"), IEnumerable(Of Object))
+            Dim pmsRaw = TryCast(GetDictValue(pd, "pmsRaw"), IEnumerable(Of Object))
+            Dim errors = TryCast(GetDictValue(pd, "errors"), IEnumerable(Of Object))
 
             Using dlg As New SaveFileDialog()
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
-                dlg.FileName = "SegmentPmsCheck.xlsx"
+                dlg.FileName = "SegmentPmsResult.xlsx"
                 dlg.AddExtension = True
-                If dlg.ShowDialog() <> DialogResult.OK Then Return
+                If dlg.ShowDialog() <> DialogResult.OK Then
+                    Return
+                End If
 
                 Try
                     Dim wb As IWorkbook = New XSSFWorkbook()
+                    AddSheet(wb, "SizeCompare", compare)
                     AddSheet(wb, "PipeTypeSegmentMap", map)
                     AddSheet(wb, "SegmentSizeRaw_Revit", revitRaw)
                     AddSheet(wb, "SegmentSizeRaw_PMS", pmsRaw)
-                    AddSheet(wb, "SizeCompare", compare)
-                    AddSheet(wb, "Error", err)
+                    AddSheet(wb, "Error", errors)
                     Using fs As New FileStream(dlg.FileName, FileMode.Create, FileAccess.Write)
                         wb.Write(fs)
                     End Using
-                    SendToWeb("segmentpms:saved", New With {.path = dlg.FileName})
+                    SendToWeb("segmentpms:result-saved", New With {.path = dlg.FileName})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
@@ -296,91 +397,81 @@ Namespace UI.Hub
         End Sub
 
         Private Function BuildExtractSummary(ds As DataSet) As String
-            If ds Is Nothing Then Return String.Empty
-            Dim rules = ds.Tables(SegmentPmsCheckService.TableRules)
-            Dim sizes = ds.Tables(SegmentPmsCheckService.TableSizes)
-            Dim fileCount As Integer = 0
-            Dim pipeCount As Integer = 0
-            Dim candCount As Integer = If(rules Is Nothing, 0, rules.Rows.Count)
-            If rules IsNot Nothing Then
-                Dim fileSet As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                Dim pipeSet As New HashSet(Of Tuple(Of String, String))(TupleComparer())
-                For Each r As DataRow In rules.Rows
-                    fileSet.Add(NormalizePath(SegPmsSafeStr(r("File"))))
-                    pipeSet.Add(Tuple.Create(SegPmsSafeStr(r("File")), SegPmsSafeStr(r("PipeTypeName"))))
-                Next
-                fileCount = fileSet.Count
-                pipeCount = pipeSet.Count
+            If ds Is Nothing OrElse Not ds.Tables.Contains(SegmentPmsCheckService.TableRules) Then
+                Return String.Empty
             End If
-            Dim sizeCount As Integer = If(sizes Is Nothing, 0, sizes.Rows.Count)
-            Return $"파일 {fileCount}개, PipeType {pipeCount}, Segment 후보 {candCount}, 사이즈 {sizeCount}"
+            Dim rules = ds.Tables(SegmentPmsCheckService.TableRules)
+            Dim sizes As DataTable = Nothing
+            If ds.Tables.Contains(SegmentPmsCheckService.TableSizes) Then
+                sizes = ds.Tables(SegmentPmsCheckService.TableSizes)
+            End If
+            Dim fileSet As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            Dim pipeSet As New HashSet(Of Tuple(Of String, String))(TupleComparer())
+            For Each r As DataRow In rules.Rows
+                fileSet.Add(NormalizePath(SafeStr(r("File"))))
+                pipeSet.Add(Tuple.Create(SafeStr(r("File")), SafeStr(r("PipeTypeName"))))
+            Next
+            Dim sizeCount As Integer = 0
+            If sizes IsNot Nothing Then
+                sizeCount = sizes.Rows.Count
+            End If
+            Return $"파일 {fileSet.Count}개, PipeType {pipeSet.Count}, Segment 후보 {rules.Rows.Count}, 사이즈 {sizeCount}"
         End Function
 
-        Private Function BuildPipePayload(ds As DataSet) As Object
-            If ds Is Nothing OrElse Not ds.Tables.Contains(SegmentPmsCheckService.TableRules) Then Return New Object() {}
+        Private Function BuildPipePayload(ds As DataSet) As List(Of Object)
+            Dim list As New List(Of Object)()
+            If ds Is Nothing OrElse Not ds.Tables.Contains(SegmentPmsCheckService.TableRules) Then
+                Return list
+            End If
             Dim t = ds.Tables(SegmentPmsCheckService.TableRules)
             Dim buckets As New Dictionary(Of Tuple(Of String, String), List(Of Dictionary(Of String, Object)))(TupleComparer())
             For Each r As DataRow In t.Rows
-                Dim key = Tuple.Create(SegPmsSafeStr(r("File")), SegPmsSafeStr(r("PipeTypeName")))
-                If Not buckets.ContainsKey(key) Then buckets(key) = New List(Of Dictionary(Of String, Object))()
+                Dim key = Tuple.Create(SafeStr(r("File")), SafeStr(r("PipeTypeName")))
+                If Not buckets.ContainsKey(key) Then
+                    buckets(key) = New List(Of Dictionary(Of String, Object))()
+                End If
                 Dim cand As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase)
-                cand("ruleIndex") = SegPmsSafeInt(r("RuleIndex"))
-                cand("segmentId") = SegPmsSafeInt(r("SegmentId"))
-                cand("segmentKey") = SegPmsSafeStr(r("SegmentKey"))
-                cand("segmentName") = SegPmsSafeStr(r("SegmentKey"))
+                cand("ruleIndex") = SafeIntObj(r("RuleIndex"))
+                cand("segmentId") = SafeIntObj(r("SegmentId"))
+                cand("segmentKey") = SafeStr(r("SegmentKey"))
+                cand("segmentName") = SafeStr(r("SegmentKey"))
                 buckets(key).Add(cand)
             Next
 
-            Dim list As New List(Of Object)()
             For Each kvp In buckets
-                Dim candidates = kvp.Value.OrderBy(Function(x) Convert.ToInt32(x("ruleIndex"))).ToList()
+                Dim candidates = kvp.Value
+                candidates.Sort(Function(a, b) Convert.ToInt32(a("ruleIndex")).CompareTo(Convert.ToInt32(b("ruleIndex"))))
                 Dim defaultRule As Integer = 0
                 If candidates.Count > 0 Then
                     defaultRule = Convert.ToInt32(candidates(0)("ruleIndex"))
-                End If
-                Dim defaultList As List(Of String) = Nothing
-                If _defaultMap IsNot Nothing AndAlso candidates.Count > 0 Then
-                    Dim segKey As String = TryCast(candidates(0)("segmentKey"), String)
-                    If Not String.IsNullOrEmpty(segKey) Then _defaultMap.TryGetValue(segKey, defaultList)
                 End If
                 list.Add(New With {
                     .file = kvp.Key.Item1,
                     .pipeType = kvp.Key.Item2,
                     .candidates = candidates,
-                    .defaultRuleIndex = defaultRule,
-                    .preselects = defaultList
+                    .defaultRuleIndex = defaultRule
                 })
             Next
 
             Return list
         End Function
 
-        Private Function BuildPmsOptions() As Object
-            If _pmsRows Is Nothing Then Return New Object() {}
-            Return _pmsRows.Select(Function(r) New With {.label = $"[{r.[Class]}] {r.SegmentKey}", .cls = r.[Class], .segment = r.SegmentKey}).ToList()
-        End Function
-
-        Private Function ParseStringList(payload As Object, name As String) As List(Of String)
-            Dim res As New List(Of String)()
-            Dim raw = GetProp(payload, name)
-            If raw Is Nothing Then Return res
-
-            Dim enumerable = TryCast(raw, System.Collections.IEnumerable)
-            If enumerable IsNot Nothing AndAlso Not (TypeOf raw Is String) Then
-                For Each o As Object In enumerable
-                    Dim s = SegPmsSafeStr(o)
-                    If Not String.IsNullOrWhiteSpace(s) AndAlso Not res.Any(Function(x) x.Equals(s, StringComparison.OrdinalIgnoreCase)) Then res.Add(s)
-                Next
-            Else
-                Dim s = SegPmsSafeStr(raw)
-                If Not String.IsNullOrWhiteSpace(s) AndAlso Not res.Any(Function(x) x.Equals(s, StringComparison.OrdinalIgnoreCase)) Then res.Add(s)
+        Private Function BuildPmsOptions() As List(Of Object)
+            Dim list As New List(Of Object)()
+            If _pmsRows Is Nothing Then
+                Return list
             End If
-            Return res
+            For Each r In _pmsRows
+                list.Add(New With {.label = $"{r.Class} | {r.SegmentKey}", .cls = r.Class, .segment = r.SegmentKey})
+            Next
+            Return list
         End Function
 
         Private Shared Function DataTableToObjects(t As DataTable) As List(Of Dictionary(Of String, Object))
             Dim list As New List(Of Dictionary(Of String, Object))()
-            If t Is Nothing Then Return list
+            If t Is Nothing Then
+                Return list
+            End If
             For Each r As DataRow In t.Rows
                 Dim d As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase)
                 For Each c As DataColumn In t.Columns
@@ -393,31 +484,47 @@ Namespace UI.Hub
 
         Private Shared Sub AddSheet(wb As IWorkbook, name As String, rows As IEnumerable(Of Object))
             Dim sh = wb.CreateSheet(name)
-            If rows Is Nothing Then Return
-            Dim data = rows.ToList()
-            If data.Count = 0 Then Return
+            If rows Is Nothing Then
+                Return
+            End If
+            Dim data As New List(Of IDictionary(Of String, Object))()
+            For Each obj In rows
+                Dim d = TryCast(obj, IDictionary(Of String, Object))
+                If d IsNot Nothing Then
+                    data.Add(d)
+                End If
+            Next
+            If data.Count = 0 Then
+                Return
+            End If
 
-            Dim first As IDictionary(Of String, Object) = TryCast(data(0), IDictionary(Of String, Object))
-            If first Is Nothing Then Return
-            Dim cols = first.Keys.ToList()
-            Dim head = sh.CreateRow(0)
-            For ci = 0 To cols.Count - 1
-                head.CreateCell(ci).SetCellValue(cols(ci))
+            Dim headRow = sh.CreateRow(0)
+            Dim cols = New List(Of String)(data(0).Keys)
+            For ci As Integer = 0 To cols.Count - 1
+                headRow.CreateCell(ci).SetCellValue(cols(ci))
             Next
 
-            Dim r As Integer = 1
-            For Each item As IDictionary(Of String, Object) In data
-                Dim row = sh.CreateRow(r)
-                For ci = 0 To cols.Count - 1
-                    Dim v = If(item(cols(ci)), String.Empty).ToString()
-                    row.CreateCell(ci).SetCellValue(v)
+            Dim rIndex As Integer = 1
+            For Each item In data
+                Dim row = sh.CreateRow(rIndex)
+                For ci As Integer = 0 To cols.Count - 1
+                    Dim key = cols(ci)
+                    Dim v As Object = Nothing
+                    item.TryGetValue(key, v)
+                    Dim cellText As String = String.Empty
+                    If v IsNot Nothing AndAlso Not TypeOf v Is DBNull Then
+                        cellText = v.ToString()
+                    End If
+                    row.CreateCell(ci).SetCellValue(cellText)
                 Next
-                r += 1
+                rIndex += 1
             Next
         End Sub
 
         Private Shared Function NormalizePath(p As String) As String
-            If String.IsNullOrWhiteSpace(p) Then Return String.Empty
+            If String.IsNullOrWhiteSpace(p) Then
+                Return String.Empty
+            End If
             Try
                 Return Path.GetFullPath(p)
             Catch
@@ -425,33 +532,11 @@ Namespace UI.Hub
             End Try
         End Function
 
-        Private Sub UpdateLastNdRoundFromExtract(ds As DataSet)
-            If ds Is Nothing Then Return
-            If ds.Tables.Contains(SegmentPmsCheckService.TableMeta) Then
-                Dim t = ds.Tables(SegmentPmsCheckService.TableMeta)
-                If t.Rows.Count > 0 Then
-                    Dim val = SegPmsSafeInt(t.Rows(0)("NdRound"))
-                    If val > 0 Then _lastNdRound = val
-                End If
-            End If
-        End Sub
-
-        Private Shared Function SegPmsSafeStr(o As Object) As String
-            If o Is Nothing Then Return String.Empty
-            Try
-                Return o.ToString()
-            Catch
+        Private Shared Function SafeStr(o As Object) As String
+            If o Is Nothing Then
                 Return String.Empty
-            End Try
-        End Function
-
-        Private Shared Function SegPmsSafeInt(o As Object) As Integer
-            If o Is Nothing Then Return 0
-            Try
-                Return Convert.ToInt32(o)
-            Catch
-                Return 0
-            End Try
+            End If
+            Return o.ToString()
         End Function
 
         Private Shared Function TupleComparer() As IEqualityComparer(Of Tuple(Of String, String))
@@ -462,13 +547,19 @@ Namespace UI.Hub
             Implements IEqualityComparer(Of Tuple(Of String, String))
 
             Public Overloads Function Equals(x As Tuple(Of String, String), y As Tuple(Of String, String)) As Boolean Implements IEqualityComparer(Of Tuple(Of String, String)).Equals
-                If x Is y Then Return True
-                If x Is Nothing OrElse y Is Nothing Then Return False
+                If x Is y Then
+                    Return True
+                End If
+                If x Is Nothing OrElse y Is Nothing Then
+                    Return False
+                End If
                 Return String.Equals(x.Item1, y.Item1, StringComparison.OrdinalIgnoreCase) AndAlso String.Equals(x.Item2, y.Item2, StringComparison.OrdinalIgnoreCase)
             End Function
 
             Public Overloads Function GetHashCode(obj As Tuple(Of String, String)) As Integer Implements IEqualityComparer(Of Tuple(Of String, String)).GetHashCode
-                If obj Is Nothing Then Return 0
+                If obj Is Nothing Then
+                    Return 0
+                End If
                 Return (If(obj.Item1, String.Empty).ToLowerInvariant().GetHashCode() Xor (If(obj.Item2, String.Empty).ToLowerInvariant().GetHashCode() << 3))
             End Function
         End Class
