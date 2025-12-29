@@ -20,6 +20,7 @@ Namespace UI.Hub
         Private _pmsRows As List(Of SegmentPmsCheckService.PmsRow)
         Private _pmsUnitPref As String = "mm"
         Private _lastExtractPath As String = String.Empty
+        Private _lastRunResult As SegmentPmsCheckService.RunResult = Nothing
 
         Private Shared Function ParsePayloadDict(payload As Object) As Dictionary(Of String, Object)
             Dim dict = TryCast(payload, Dictionary(Of String, Object))
@@ -428,6 +429,7 @@ Namespace UI.Hub
 
             Try
                 Dim run = SegmentPmsCheckService.RunCompare(_extractData, _pmsRows, maps, opts)
+                _lastRunResult = run
                 Dim compare = DataTableToObjects(run.CompareTable)
                 Dim map = DataTableToObjects(run.MapTable)
                 Dim revitRaw = DataTableToObjects(run.RevitSizeTable)
@@ -449,16 +451,51 @@ Namespace UI.Hub
 
         Private Sub HandleSegmentPmsSaveResult(app As UIApplication, payload As Object)
             Dim pd = ParsePayloadDict(payload)
-            Dim compare = TryCast(GetDictValue(pd, "compare"), IEnumerable(Of Object))
-            If compare Is Nothing Then
+            Dim compareRows As List(Of Dictionary(Of String, Object)) = Nothing
+            Dim mapRows As List(Of Dictionary(Of String, Object)) = Nothing
+            Dim revitRows As List(Of Dictionary(Of String, Object)) = Nothing
+            Dim pmsRows As List(Of Dictionary(Of String, Object)) = Nothing
+            Dim errorRows As List(Of Dictionary(Of String, Object)) = Nothing
+            Dim summaryRows As List(Of Dictionary(Of String, Object)) = Nothing
+
+            If _lastRunResult IsNot Nothing Then
+                compareRows = DataTableToObjects(_lastRunResult.CompareTable)
+                mapRows = DataTableToObjects(_lastRunResult.MapTable)
+                revitRows = DataTableToObjects(_lastRunResult.RevitSizeTable)
+                pmsRows = DataTableToObjects(_lastRunResult.PmsSizeTable)
+                errorRows = DataTableToObjects(_lastRunResult.ErrorTable)
+                summaryRows = DataTableToObjects(_lastRunResult.SummaryTable)
+            End If
+
+            If compareRows Is Nothing Then
+                compareRows = CoerceRowsToDictList(GetDictValue(pd, "compare"))
+            End If
+            If mapRows Is Nothing Then
+                mapRows = CoerceRowsToDictList(GetDictValue(pd, "map"))
+            End If
+            If revitRows Is Nothing Then
+                revitRows = CoerceRowsToDictList(GetDictValue(pd, "revitRaw"))
+            End If
+            If pmsRows Is Nothing Then
+                pmsRows = CoerceRowsToDictList(GetDictValue(pd, "pmsRaw"))
+            End If
+            If errorRows Is Nothing Then
+                errorRows = CoerceRowsToDictList(GetDictValue(pd, "errors"))
+            End If
+            If summaryRows Is Nothing Then
+                summaryRows = CoerceRowsToDictList(GetDictValue(pd, "summary"))
+            End If
+
+            Dim hasData As Boolean = (compareRows IsNot Nothing AndAlso compareRows.Count > 0) OrElse
+                                     (mapRows IsNot Nothing AndAlso mapRows.Count > 0) OrElse
+                                     (revitRows IsNot Nothing AndAlso revitRows.Count > 0) OrElse
+                                     (pmsRows IsNot Nothing AndAlso pmsRows.Count > 0) OrElse
+                                     (errorRows IsNot Nothing AndAlso errorRows.Count > 0) OrElse
+                                     (summaryRows IsNot Nothing AndAlso summaryRows.Count > 0)
+            If Not hasData Then
                 SendToWeb("segmentpms:error", New With {.message = "저장할 결과가 없습니다."})
                 Return
             End If
-            Dim map = TryCast(GetDictValue(pd, "map"), IEnumerable(Of Object))
-            Dim revitRaw = TryCast(GetDictValue(pd, "revitRaw"), IEnumerable(Of Object))
-            Dim pmsRaw = TryCast(GetDictValue(pd, "pmsRaw"), IEnumerable(Of Object))
-            Dim errors = TryCast(GetDictValue(pd, "errors"), IEnumerable(Of Object))
-            Dim summary = TryCast(GetDictValue(pd, "summary"), IEnumerable(Of Object))
 
             Using dlg As New SaveFileDialog()
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
@@ -470,12 +507,12 @@ Namespace UI.Hub
 
                 Try
                     Dim wb As IWorkbook = New XSSFWorkbook()
-                    AddSheet(wb, "Compare", compare)
-                    AddSheet(wb, "PipeTypeSegmentMap", map)
-                    AddSheet(wb, "SegmentSizeRaw_Revit", revitRaw)
-                    AddSheet(wb, "SegmentSizeRaw_PMS", pmsRaw)
-                    AddSheet(wb, "Summary", summary)
-                    AddSheet(wb, "Error", errors)
+                    AddSheet(wb, "Compare", compareRows)
+                    AddSheet(wb, "PipeTypeSegmentMap", mapRows)
+                    AddSheet(wb, "SegmentSizeRaw_Revit", revitRows)
+                    AddSheet(wb, "SegmentSizeRaw_PMS", pmsRows)
+                    AddSheet(wb, "Summary", summaryRows)
+                    AddSheet(wb, "Error", errorRows)
                     Using fs As New FileStream(dlg.FileName, FileMode.Create, FileAccess.Write)
                         wb.Write(fs)
                     End Using
@@ -565,35 +602,81 @@ Namespace UI.Hub
             Return list
         End Function
 
-        Private Shared Sub AddSheet(wb As IWorkbook, name As String, rows As IEnumerable(Of Object))
+        Private Shared Function CoerceRowsToDictList(raw As Object) As List(Of Dictionary(Of String, Object))
+            Dim res As New List(Of Dictionary(Of String, Object))()
+            If raw Is Nothing Then
+                Return res
+            End If
+
+            Dim en = TryCast(raw, System.Collections.IEnumerable)
+            If en Is Nothing OrElse TypeOf raw Is String Then
+                Return res
+            End If
+
+            For Each it As Object In en
+                If it Is Nothing Then
+                    Continue For
+                End If
+
+                Dim gen As IDictionary(Of String, Object) = TryCast(it, IDictionary(Of String, Object))
+                If gen IsNot Nothing Then
+                    res.Add(New Dictionary(Of String, Object)(gen, StringComparer.OrdinalIgnoreCase))
+                    Continue For
+                End If
+
+                Dim idic As System.Collections.IDictionary = TryCast(it, System.Collections.IDictionary)
+                If idic IsNot Nothing Then
+                    Dim d As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase)
+                    For Each k As Object In idic.Keys
+                        d(SegPmsSafeStr(k)) = idic(k)
+                    Next
+                    res.Add(d)
+                    Continue For
+                End If
+
+                Try
+                    Dim d As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase)
+                    Dim props = it.GetType().GetProperties()
+                    For Each p In props
+                        If p Is Nothing OrElse Not p.CanRead Then
+                            Continue For
+                        End If
+                        d(p.Name) = p.GetValue(it, Nothing)
+                    Next
+                    If d.Count > 0 Then
+                        res.Add(d)
+                    End If
+                Catch
+                End Try
+            Next
+
+            Return res
+        End Function
+
+        Private Shared Sub AddSheet(wb As IWorkbook, name As String, rows As List(Of Dictionary(Of String, Object)))
             Dim sh = wb.CreateSheet(name)
             If rows Is Nothing Then
                 Return
             End If
-            Dim data As New List(Of IDictionary(Of String, Object))()
-            For Each obj In rows
-                Dim d = TryCast(obj, IDictionary(Of String, Object))
-                If d IsNot Nothing Then
-                    data.Add(d)
-                End If
-            Next
-            If data.Count = 0 Then
+            If rows.Count = 0 Then
                 Return
             End If
 
             Dim headRow = sh.CreateRow(0)
-            Dim cols = New List(Of String)(data(0).Keys)
+            Dim cols = New List(Of String)(rows(0).Keys)
             For ci As Integer = 0 To cols.Count - 1
                 headRow.CreateCell(ci).SetCellValue(cols(ci))
             Next
 
             Dim rIndex As Integer = 1
-            For Each item In data
+            For Each item In rows
                 Dim row = sh.CreateRow(rIndex)
                 For ci As Integer = 0 To cols.Count - 1
                     Dim key = cols(ci)
                     Dim v As Object = Nothing
-                    item.TryGetValue(key, v)
+                    If Not item.TryGetValue(key, v) Then
+                        v = Nothing
+                    End If
                     Dim cellText As String = String.Empty
                     If v IsNot Nothing AndAlso Not TypeOf v Is DBNull Then
                         cellText = v.ToString()
@@ -620,6 +703,10 @@ Namespace UI.Hub
                 Return String.Empty
             End If
             Return o.ToString()
+        End Function
+
+        Private Shared Function SegPmsSafeStr(o As Object) As String
+            Return SafeStr(o)
         End Function
 
         Private Shared Function TupleComparer() As IEqualityComparer(Of Tuple(Of String, String))
