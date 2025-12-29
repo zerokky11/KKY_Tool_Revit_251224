@@ -140,11 +140,13 @@ Namespace UI.Hub
             ' Segment ↔ PMS Check
             map.Add("segmentpms:rvt-pick-files", "HandleSegmentPmsRvtPickFiles")
             map.Add("segmentpms:rvt-pick-folder", "HandleSegmentPmsRvtPickFolder")
-            map.Add("segmentpms:extract-start", "HandleSegmentPmsExtractStart")
+            map.Add("segmentpms:extract", "HandleSegmentPmsExtractStart")
             map.Add("segmentpms:load-extract", "HandleSegmentPmsLoadExtract")
-            map.Add("segmentpms:save-excel", "HandleSegmentPmsSaveResult")
+            map.Add("segmentpms:save-extract", "HandleSegmentPmsSaveExtract")
             map.Add("segmentpms:register-pms", "HandleSegmentPmsRegisterPms")
+            map.Add("segmentpms:prepare-mapping", "HandleSegmentPmsPrepareMapping")
             map.Add("segmentpms:run", "HandleSegmentPmsRun")
+            map.Add("segmentpms:save-result", "HandleSegmentPmsSaveResult")
 
             Dim methodName As String = Nothing
             If Not map.TryGetValue(name, methodName) Then

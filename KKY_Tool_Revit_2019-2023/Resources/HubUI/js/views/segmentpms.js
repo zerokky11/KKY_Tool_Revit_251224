@@ -9,10 +9,8 @@ function loadRvtList() {
   try {
     const arr = JSON.parse(localStorage.getItem(LS_RVT_LIST) || '[]');
     if (Array.isArray(arr)) return arr;
-    return [];
-  } catch {
-    return [];
-  }
+  } catch { }
+  return [];
 }
 
 function saveRvtList(list) {
@@ -44,9 +42,9 @@ export function renderSegmentPms() {
     extractPath: '',
     pmsLoaded: false,
     pmsOpts: [],
-    pipes: [],
-    suggestions: new Map(), // key: file|pipe -> {cls, segment}
-    mappings: new Map(),
+    groups: [],
+    suggestions: new Map(), // key: groupKey -> {cls, segment}
+    selections: new Map(), // groupKey -> {cls, segment, source}
     results: null,
     busy: false
   };
@@ -54,7 +52,7 @@ export function renderSegmentPms() {
   const page = div('feature-shell segmentpms-page');
   const header = div('feature-header');
   const heading = div('feature-heading');
-  heading.innerHTML = `<span class="feature-kicker">PipeType - PMS</span><h2 class="feature-title">Segment 매핑/검증</h2><p class="feature-sub">RVT를 추출한 뒤 PMS와 매핑하여 ND별 ID/OD를 비교합니다.</p>`;
+  heading.innerHTML = `<span class="feature-kicker">PipeType - PMS</span><h2 class="feature-title">Segment 매핑/검증</h2><p class="feature-sub">추출(Excel)과 PMS를 분리하여 그룹 단위 매핑 후 비교합니다.</p>`;
   header.append(heading);
   page.append(header);
 
@@ -69,7 +67,7 @@ export function renderSegmentPms() {
   const tolBox = control.querySelectorAll('input[type="number"]')[1];
   const unitSel = control.querySelector('select'); unitSel.value = opts.unit || 'mm';
   numRound.addEventListener('change', commitOpts); tolBox.addEventListener('change', commitOpts); unitSel.addEventListener('change', commitOpts);
-  function commitOpts() { saveOpts({ ndRound: parseInt(numRound.value || '3'), tolMm: parseFloat(tolBox.value || '0.01'), unit: String(unitSel.value || 'mm') }); }
+  function commitOpts() { saveOpts({ ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01'), unit: String(unitSel.value || 'mm') }); }
   page.append(control);
 
   /* Extract section */
@@ -77,19 +75,23 @@ export function renderSegmentPms() {
   const exHeader = document.createElement('div'); exHeader.className = 'section-header';
   exHeader.innerHTML = '<h3>1단계: 추출 (RVT → Excel)</h3>';
   const exActions = div('segmentpms-actions-row');
-  const btnAddRvt = cardBtn('RVT 추가(파일)', () => post('segmentpms:rvt-pick-files', {}));
+  const btnAddRvt = cardBtn('RVT 파일 추가', () => post('segmentpms:rvt-pick-files', {}));
   const btnAddFolder = cardBtn('RVT 폴더 추가', () => post('segmentpms:rvt-pick-folder', {}));
   const btnRemoveSel = cardBtn('선택 제거', removeCheckedRvt);
-  const btnClearAll = cardBtn('전체 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvt(); renderRvtList(); updateButtons(); });
+  const btnClearAll = cardBtn('등록 목록 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvt(); renderRvtList(); updateButtons(); });
   const btnExtract = cardBtn('추출 시작', onExtract);
-  exActions.append(btnAddRvt, btnAddFolder, btnRemoveSel, btnClearAll, btnExtract);
+  const btnSaveExtract = cardBtn('추출 결과 저장(Excel)', () => post('segmentpms:save-extract', {}));
+  exActions.append(btnAddRvt, btnAddFolder, btnRemoveSel, btnClearAll, btnExtract, btnSaveExtract);
   exHeader.append(exActions);
 
   const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table';
   rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
   const rvtBody = rvtTable.querySelector('tbody');
   const extractInfo = div('segmentpms-summary'); extractInfo.textContent = '추출 상태: 미실행';
-  extractSection.append(exHeader, rvtTable, extractInfo);
+  const extractLoadRow = div('segmentpms-actions-row');
+  const btnLoadExtract = cardBtn('추출 결과 불러오기', () => post('segmentpms:load-extract', {}));
+  extractLoadRow.append(btnLoadExtract);
+  extractSection.append(exHeader, rvtTable, extractLoadRow, extractInfo);
   page.append(extractSection);
 
   /* Check section */
@@ -97,21 +99,21 @@ export function renderSegmentPms() {
   const chHeader = document.createElement('div'); chHeader.className = 'section-header';
   chHeader.innerHTML = '<h3>2단계: 검토 (추출 Excel + PMS)</h3>';
   const chActions = div('segmentpms-actions-row');
-  const btnLoadExtract = cardBtn('추출 Excel 불러오기', () => post('segmentpms:load-extract', {}));
-  const btnRegisterPms = cardBtn('PMS Excel 등록/업데이트', () => post('segmentpms:register-pms', { unit: unitSel.value }));
+  const btnRegisterPms = cardBtn('PMS 등록/업데이트', () => { setBusy(true, 'PMS 불러오는 중'); state.busy = true; updateButtons(); post('segmentpms:register-pms', { unit: unitSel.value }); });
+  const btnPrepare = cardBtn('매핑 준비', onPrepareMapping);
   const btnRun = cardBtn('검토 시작', onRun);
-  const btnSave = cardBtn('결과 엑셀 저장', () => {
+  const btnSave = cardBtn('검토 결과 저장', () => {
     if (!state.results) { toast('저장할 결과가 없습니다.', 'err'); return; }
-    post('segmentpms:save-excel', state.results);
+    post('segmentpms:save-result', state.results);
   });
-  chActions.append(btnLoadExtract, btnRegisterPms, btnRun, btnSave);
+  chActions.append(btnLoadExtract, btnRegisterPms, btnPrepare, btnRun, btnSave);
   chHeader.append(chActions);
   checkSection.append(chHeader);
 
-  const mapTable = document.createElement('table'); mapTable.className = 'segmentpms-table';
-  mapTable.innerHTML = '<thead><tr><th>파일</th><th>PipeType</th><th>Revit Segment</th><th>PMS Segment</th><th>추천</th></tr></thead><tbody></tbody>';
-  const mapBody = mapTable.querySelector('tbody');
-  checkSection.append(mapTable);
+  const groupTable = document.createElement('table'); groupTable.className = 'segmentpms-table';
+  groupTable.innerHTML = '<thead><tr><th>Revit Segment 그룹</th><th>사용처</th><th>PMS Segment</th><th>추천</th></tr></thead><tbody></tbody>';
+  const groupBody = groupTable.querySelector('tbody');
+  checkSection.append(groupTable);
 
   const resInfo = div('segmentpms-summary'); resInfo.textContent = '결과 없음';
   const resTable = document.createElement('table'); resTable.className = 'segmentpms-table';
@@ -160,79 +162,64 @@ export function renderSegmentPms() {
     const targets = state.rvtList.filter(p => state.rvtChecked.has(p));
     if (!targets.length) { toast('추출할 RVT를 선택하세요.', 'err'); return; }
     setBusy(true, '추출 중'); state.busy = true; updateButtons();
-    post('segmentpms:extract-start', { files: targets, options: { ndRound: parseInt(numRound.value || '3', 10) } });
+    post('segmentpms:extract', { files: targets, options: { ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01') } });
   }
 
-  function buildMapTable() {
-    mapBody.innerHTML = '';
-    state.mappings.clear();
-    if (!state.pipes.length) {
-      const tr = document.createElement('tr'); const td1 = document.createElement('td'); td1.colSpan = 5; td1.textContent = '추출 결과를 불러오세요.'; tr.append(td1); mapBody.append(tr); updateButtons(); return;
-    }
-    state.pipes.forEach(row => {
-      const tr = document.createElement('tr');
-      tr.append(td(shortFile(row.file)), td(row.pipeType));
+  function onPrepareMapping() {
+    if (!state.extractLoaded) { toast('추출 결과를 먼저 불러오세요.', 'err'); return; }
+    setBusy(true, '매핑 준비'); state.busy = true; updateButtons();
+    post('segmentpms:prepare-mapping', {});
+  }
 
-      const revSel = document.createElement('select');
-      row.candidates.forEach(c => revSel.append(new Option(`${c.ruleIndex} | ${c.segmentKey || '(미지정)'}`, `${c.ruleIndex}`)));
-      revSel.value = String(row.defaultRuleIndex ?? row.candidates[0]?.ruleIndex ?? 0);
+  function buildGroupTable() {
+    groupBody.innerHTML = '';
+    state.selections.clear();
+    if (!state.groups.length) {
+      const tr = document.createElement('tr'); const td1 = document.createElement('td'); td1.colSpan = 4; td1.textContent = '추출 결과와 PMS를 불러와 매핑을 준비하세요.'; tr.append(td1); groupBody.append(tr); updateButtons(); return;
+    }
+    state.groups.forEach(g => {
+      const tr = document.createElement('tr');
+      tr.append(td(g.displayKey || g.groupKey));
+      tr.append(td(g.usageSummary || ''));
 
       const pmsSel = document.createElement('select');
       fillPmsOptions(pmsSel);
-
       const suggLabel = document.createElement('small'); suggLabel.className = 'segmentpms-suggest';
 
-      const mapKey = `${row.file}|${row.pipeType}`;
-      const sugKey = () => `${row.file}|${row.pipeType}|${revSel.value}`;
       const applySuggestion = () => {
-        const sug = state.suggestions.get(sugKey());
+        const sug = state.suggestions.get(g.groupKey);
         if (sug && sug.pmsSegmentKey) {
           pmsSel.value = `${sug.pmsClass}|||${sug.pmsSegmentKey}`;
+          suggLabel.textContent = '추천 적용';
+        } else if (g.suggestedSegmentKey) {
+          pmsSel.value = `${g.suggestedClass}|||${g.suggestedSegmentKey}`;
           suggLabel.textContent = '추천 적용';
         } else {
           suggLabel.textContent = '';
         }
       };
-
-      const currentCand = () => row.candidates.find(c => String(c.ruleIndex) === revSel.value) || row.candidates[0];
       applySuggestion();
-      commitMap(mapKey, currentCand(), pmsSel.value, suggLabel.textContent ? 'Suggest' : 'Manual');
+      commitSelection(g.groupKey, pmsSel.value, suggLabel.textContent ? 'Suggest' : 'Manual');
 
-      revSel.onchange = () => {
-        applySuggestion();
-        commitMap(mapKey, currentCand(), pmsSel.value, suggLabel.textContent ? 'Suggest' : 'Manual');
-      };
       pmsSel.onchange = () => {
-        commitMap(mapKey, currentCand(), pmsSel.value, 'Manual');
+        commitSelection(g.groupKey, pmsSel.value, 'Manual');
         suggLabel.textContent = '';
       };
 
-      const tdRevit = document.createElement('td'); tdRevit.append(revSel);
       const tdPms = document.createElement('td'); tdPms.append(pmsSel);
       const tdSug = document.createElement('td'); tdSug.append(suggLabel);
-      tr.append(tdRevit, tdPms, tdSug);
-      mapBody.append(tr);
+      tr.append(tdPms, tdSug);
+      groupBody.append(tr);
     });
     updateButtons();
   }
 
-  function commitMap(mapKey, cand, pmsVal, source) {
-    const chosen = cand || {};
+  function commitSelection(groupKey, pmsVal, source) {
     const val = String(pmsVal || '');
     const parts = val.split('|||');
     const cls = parts[0] || '';
     const seg = parts[1] || '';
-    const mapObj = {
-      file: mapKey.split('|')[0],
-      pipeType: mapKey.split('|')[1],
-      ruleIndex: chosen.ruleIndex || 0,
-      segmentId: chosen.segmentId || 0,
-      segmentKey: chosen.segmentKey || '',
-      cls: cls,
-      segment: seg,
-      source: source || 'Manual'
-    };
-    state.mappings.set(mapKey, mapObj);
+    state.selections.set(groupKey, { groupKey, cls, segment: seg, source: source || 'Manual' });
   }
 
   function fillPmsOptions(sel) {
@@ -252,9 +239,9 @@ export function renderSegmentPms() {
   function onRun() {
     if (!state.extractLoaded) { toast('추출 데이터를 먼저 불러오세요.', 'err'); return; }
     if (!state.pmsLoaded) { toast('PMS를 등록하세요.', 'err'); return; }
-    const mappings = [...state.mappings.values()];
+    const groups = [...state.selections.values()];
     setBusy(true, '검토 실행'); state.busy = true; updateButtons();
-    post('segmentpms:run', { mappings, ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01') });
+    post('segmentpms:run', { groups, ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01') });
   }
 
   function paintResults(payload) {
@@ -275,8 +262,10 @@ export function renderSegmentPms() {
     btnRemoveSel.disabled = state.busy || state.rvtChecked.size === 0;
     btnClearAll.disabled = state.busy || state.rvtList.length === 0;
     btnExtract.disabled = state.busy || state.rvtChecked.size === 0;
+    btnSaveExtract.disabled = state.busy || !state.extractLoaded;
     btnLoadExtract.disabled = state.busy;
     btnRegisterPms.disabled = state.busy;
+    btnPrepare.disabled = state.busy || !state.extractLoaded;
     btnRun.disabled = state.busy || !state.extractLoaded || !state.pmsLoaded;
     btnSave.disabled = state.busy || !state.results;
   }
@@ -294,14 +283,13 @@ export function renderSegmentPms() {
       }
       case 'segmentpms:extract-saved':
         setBusy(false); state.busy = false;
-        state.extractLoaded = false;
+        state.extractLoaded = true;
         state.extractSummary = msg.payload?.summary || '';
         state.extractPath = msg.payload?.path || '';
-        state.pipes = [];
-        state.mappings.clear();
         state.results = null;
         extractInfo.textContent = `추출 완료: ${state.extractSummary} (${state.extractPath})`;
         toast('추출을 완료했습니다.', 'ok');
+        post('segmentpms:prepare-mapping', {});
         updateButtons();
         break;
       case 'segmentpms:extract-loaded':
@@ -311,10 +299,18 @@ export function renderSegmentPms() {
         state.extractPath = msg.payload?.path || '';
         state.results = null;
         extractInfo.textContent = `추출 로드: ${state.extractSummary} (${state.extractPath})`;
-        state.pipes = msg.payload?.pipes || [];
+        state.groups = msg.payload?.groups || [];
         state.pmsOpts = msg.payload?.pms || state.pmsOpts;
         state.suggestions = buildSuggestionMap(msg.payload?.suggestions || []);
-        buildMapTable();
+        buildGroupTable();
+        updateButtons();
+        break;
+      case 'segmentpms:mapping-ready':
+        setBusy(false); state.busy = false;
+        state.groups = msg.payload?.groups || [];
+        state.pmsOpts = msg.payload?.pms || state.pmsOpts;
+        state.suggestions = buildSuggestionMap(msg.payload?.suggestions || []);
+        buildGroupTable();
         updateButtons();
         break;
       case 'segmentpms:pms-registered':
@@ -323,20 +319,16 @@ export function renderSegmentPms() {
         state.pmsOpts = msg.payload?.options || [];
         state.suggestions = buildSuggestionMap(msg.payload?.suggestions || []);
         fillPmsOptions(document.createElement('select'));
-        if (state.pipes.length) buildMapTable();
+        if (state.extractLoaded) post('segmentpms:prepare-mapping', {});
         toast('PMS를 등록했습니다.', 'ok');
         updateButtons();
-        break;
-      case 'segmentpms:suggestion':
-        state.suggestions = buildSuggestionMap(msg.payload?.suggestions || []);
-        if (state.pipes.length) buildMapTable();
         break;
       case 'segmentpms:result':
         setBusy(false); state.busy = false;
         paintResults(msg.payload || {});
         updateButtons();
         break;
-      case 'segmentpms:result-saved':
+      case 'segmentpms:saved':
         showExcelSavedDialog('결과를 저장했습니다.', msg.payload?.path);
         break;
       case 'segmentpms:error':
@@ -353,8 +345,9 @@ function buildSuggestionMap(list) {
   const map = new Map();
   if (!Array.isArray(list)) return map;
   list.forEach(s => {
-    const key = `${s.file}|${s.pipeTypeName || s.pipeType}|${s.ruleIndex}`;
-    map.set(key, { pmsClass: s.pmsClass || s.PmsClass, pmsSegmentKey: s.pmsSegmentKey || s.PmsSegmentKey });
+    const key = s.groupKey || s.GroupKey || s.segmentKey || s.SegmentKey || s.file;
+    if (!key) return;
+    map.set(String(key), { pmsClass: s.pmsClass || s.PmsClass, pmsSegmentKey: s.pmsSegmentKey || s.PmsSegmentKey });
   });
   return map;
 }
@@ -365,4 +358,3 @@ function cardBtn(label, onclick) {
 }
 
 function td(v) { const t = document.createElement('td'); t.textContent = v == null ? '' : v; return t; }
-function shortFile(p) { return String(p || '').split(/[/\\]/).pop(); }

@@ -38,10 +38,18 @@ Namespace Services
             Public Property MappingSource As String = String.Empty
         End Class
 
+        Public Class GroupSelection
+            Public Property GroupKey As String = String.Empty
+            Public Property SelectedClass As String = String.Empty
+            Public Property SelectedPmsSegment As String = String.Empty
+            Public Property SelectionSource As String = String.Empty
+        End Class
+
         Public Class ExtractOptions
             Public Property NdRound As Integer = 3
             Public Property DetachFromCentral As Boolean = True
             Public Property OpenReadOnly As Boolean = True
+            Public Property ToleranceMm As Double = 0.01R
         End Class
 
         Public Class CompareOptions
@@ -60,12 +68,33 @@ Namespace Services
             Public Property Score As Double
         End Class
 
+        Public Class MappingGroup
+            Public Property GroupKey As String = String.Empty
+            Public Property DisplayKey As String = String.Empty
+            Public Property NormalizedKey As String = String.Empty
+            Public Property Usages As List(Of MappingUsage)
+            Public Property SuggestedClass As String = String.Empty
+            Public Property SuggestedSegmentKey As String = String.Empty
+            Public Property FileCount As Integer
+            Public Property PipeTypeCount As Integer
+            Public Property UsageSummary As String = String.Empty
+        End Class
+
+        Public Class MappingUsage
+            Public Property [File] As String = String.Empty
+            Public Property PipeTypeName As String = String.Empty
+            Public Property RuleIndex As Integer
+            Public Property SegmentId As Integer
+            Public Property SegmentKey As String = String.Empty
+        End Class
+
         Public Class RunResult
             Public Property MapTable As DataTable
             Public Property RevitSizeTable As DataTable
             Public Property PmsSizeTable As DataTable
             Public Property CompareTable As DataTable
             Public Property ErrorTable As DataTable
+            Public Property SummaryTable As DataTable
         End Class
 
         Public Class LoadPmsResult
@@ -74,11 +103,13 @@ Namespace Services
             Public Property Errors As List(Of String)
         End Class
 
-        Public Const TableRules As String = "PipeType_SegmentRules"
-        Public Const TableSizes As String = "SegmentSizes"
-        Public Const TableMeta As String = "Meta"
-        Public Const TableRouting As String = "RoutingPreferences"
+        Public Const TableMeta As String = "Extract_Meta"
+        Public Const TableFiles As String = "Extract_Files"
+        Public Const TableRules As String = "Extract_Rules"
+        Public Const TableSizes As String = "Extract_Sizes"
+        Public Const TableRouting As String = "Extract_Routing"
         Private Const FeetToMm As Double = 304.8R
+        Private Const ToolVersion As String = "SegmentPms 2.0"
 
         ' ---------------------------
         ' Extract stage
@@ -86,17 +117,21 @@ Namespace Services
         Public Shared Function ExtractToDataSet(app As UIApplication, files As IEnumerable(Of String), options As ExtractOptions) As DataSet
             Dim ds As New DataSet()
             Dim meta = BuildMetaTable()
+            Dim fileTable = BuildFileTable()
             Dim rules = BuildRuleTable()
             Dim sizes = BuildSizeTable()
             Dim routing = BuildRoutingTable()
             ds.Tables.Add(meta)
+            ds.Tables.Add(fileTable)
             ds.Tables.Add(rules)
             ds.Tables.Add(sizes)
             ds.Tables.Add(routing)
 
             Dim metaRow = meta.NewRow()
             metaRow("NdRound") = options.NdRound
+            metaRow("Tolerance") = options.ToleranceMm
             metaRow("CreatedAt") = DateTime.Now.ToString("s", CultureInfo.InvariantCulture)
+            metaRow("ToolVersion") = ToolVersion
             meta.Rows.Add(metaRow)
 
             Dim valid As New List(Of String)()
@@ -128,6 +163,12 @@ Namespace Services
                     Dim opt = BuildOpenOptions(options, p)
                     Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(p)
                     doc = appObj.OpenDocumentFile(mp, opt)
+
+                    Dim fileRow = fileTable.NewRow()
+                    fileRow("File") = p
+                    fileRow("FileName") = Path.GetFileName(p)
+                    fileRow("ExtractedAt") = DateTime.Now.ToString("s", CultureInfo.InvariantCulture)
+                    fileTable.Rows.Add(fileRow)
 
                     Dim routingInfos = CollectRouting(doc, p)
                     For Each info In routingInfos
@@ -192,6 +233,7 @@ Namespace Services
             If ds Is Nothing Then Return
             Dim wb As IWorkbook = New XSSFWorkbook()
             If ds.Tables.Contains(TableMeta) Then WriteSheet(wb, TableMeta, ds.Tables(TableMeta))
+            If ds.Tables.Contains(TableFiles) Then WriteSheet(wb, TableFiles, ds.Tables(TableFiles))
             If ds.Tables.Contains(TableRules) Then WriteSheet(wb, TableRules, ds.Tables(TableRules))
             If ds.Tables.Contains(TableSizes) Then WriteSheet(wb, TableSizes, ds.Tables(TableSizes))
             If ds.Tables.Contains(TableRouting) Then WriteSheet(wb, TableRouting, ds.Tables(TableRouting))
@@ -379,6 +421,143 @@ Namespace Services
             Return result
         End Function
 
+        Public Shared Function BuildGroups(extractData As DataSet) As List(Of MappingGroup)
+            Dim groups As New Dictionary(Of String, MappingGroup)(StringComparer.OrdinalIgnoreCase)
+            If extractData Is Nothing OrElse Not extractData.Tables.Contains(TableRules) Then
+                Return New List(Of MappingGroup)()
+            End If
+            Dim rules = extractData.Tables(TableRules)
+            For Each r As DataRow In rules.Rows
+                Dim segKey = SafeStr(r("SegmentKey"))
+                Dim norm = NormalizeKey(segKey)
+                Dim groupKey = If(String.IsNullOrWhiteSpace(norm), segKey, norm)
+                If Not groups.ContainsKey(groupKey) Then
+                    groups(groupKey) = New MappingGroup With {
+                        .GroupKey = groupKey,
+                        .DisplayKey = segKey,
+                        .NormalizedKey = norm,
+                        .Usages = New List(Of MappingUsage)(),
+                        .FileCount = 0,
+                        .PipeTypeCount = 0,
+                        .UsageSummary = String.Empty
+                    }
+                End If
+                Dim g = groups(groupKey)
+                If String.IsNullOrWhiteSpace(g.DisplayKey) Then
+                    g.DisplayKey = segKey
+                End If
+                g.Usages.Add(New MappingUsage With {
+                    .File = SafeStr(r("File")),
+                    .PipeTypeName = SafeStr(r("PipeTypeName")),
+                    .RuleIndex = SafeIntObj(r("RuleIndex")),
+                    .SegmentId = SafeIntObj(r("SegmentId")),
+                    .SegmentKey = segKey
+                })
+            Next
+
+            For Each kv In groups
+                Dim g = kv.Value
+                Dim fileSet As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                Dim pipeSet As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                For Each u In g.Usages
+                    fileSet.Add(NormalizePath(u.File))
+                    pipeSet.Add(u.File & "|" & u.PipeTypeName)
+                Next
+                g.FileCount = fileSet.Count
+                g.PipeTypeCount = pipeSet.Count
+                Dim sb As New StringBuilder()
+                sb.Append("Used in: ")
+                Dim fileInfo As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
+                For Each u In g.Usages
+                    Dim key = NormalizePath(u.File)
+                    If Not fileInfo.ContainsKey(key) Then
+                        fileInfo(key) = 0
+                    End If
+                    fileInfo(key) += 1
+                Next
+                Dim first As Boolean = True
+                For Each kvp In fileInfo
+                    If Not first Then
+                        sb.Append(", ")
+                    End If
+                    first = False
+                    sb.Append(Path.GetFileName(kvp.Key))
+                    sb.Append("("c)
+                    sb.Append(kvp.Value.ToString(CultureInfo.InvariantCulture))
+                    sb.Append(" PipeTypes)")
+                Next
+                g.UsageSummary = sb.ToString()
+            Next
+
+            Return New List(Of MappingGroup)(groups.Values)
+        End Function
+
+        Public Shared Function SuggestGroupMappings(groups As List(Of MappingGroup), pmsData As List(Of PmsRow)) As List(Of SuggestedMapping)
+            Dim result As New List(Of SuggestedMapping)()
+            If groups Is Nothing OrElse pmsData Is Nothing Then
+                Return result
+            End If
+            For Each g In groups
+                Dim bestScore As Double = -1
+                Dim bestClass As String = String.Empty
+                Dim bestSeg As String = String.Empty
+                For Each p In pmsData
+                    Dim normP = NormalizeKey(p.SegmentKey)
+                    Dim sim = SimilarityScore(g.NormalizedKey, normP)
+                    If sim > bestScore Then
+                        bestScore = sim
+                        bestClass = p.Class
+                        bestSeg = p.SegmentKey
+                    End If
+                Next
+                If bestScore >= 0.4R Then
+                    g.SuggestedClass = bestClass
+                    g.SuggestedSegmentKey = bestSeg
+                    result.Add(New SuggestedMapping With {
+                        .File = g.GroupKey,
+                        .PipeTypeName = g.DisplayKey,
+                        .RuleIndex = 0,
+                        .SegmentId = 0,
+                        .SegmentKey = g.GroupKey,
+                        .PmsClass = bestClass,
+                        .PmsSegmentKey = bestSeg,
+                        .Score = bestScore
+                    })
+                End If
+            Next
+            Return result
+        End Function
+
+        Public Shared Function ExpandGroupSelections(groups As List(Of MappingGroup), selections As List(Of GroupSelection)) As List(Of MappingSelection)
+            Dim result As New List(Of MappingSelection)()
+            If groups Is Nothing OrElse selections Is Nothing Then
+                Return result
+            End If
+            Dim groupDict As New Dictionary(Of String, MappingGroup)(StringComparer.OrdinalIgnoreCase)
+            For Each g In groups
+                groupDict(g.GroupKey) = g
+            Next
+            For Each sel In selections
+                Dim g As MappingGroup = Nothing
+                If Not groupDict.TryGetValue(sel.GroupKey, g) Then
+                    Continue For
+                End If
+                For Each u In g.Usages
+                    result.Add(New MappingSelection With {
+                        .File = u.File,
+                        .PipeTypeName = u.PipeTypeName,
+                        .RuleIndex = u.RuleIndex,
+                        .SegmentId = u.SegmentId,
+                        .SegmentKey = u.SegmentKey,
+                        .SelectedClass = sel.SelectedClass,
+                        .SelectedPmsSegment = sel.SelectedPmsSegment,
+                        .MappingSource = If(String.IsNullOrWhiteSpace(sel.SelectionSource), "Manual", sel.SelectionSource)
+                    })
+                Next
+            Next
+            Return result
+        End Function
+
         Public Shared Function RunCompare(extractData As DataSet,
                                           pmsData As List(Of PmsRow),
                                           mappings As List(Of MappingSelection),
@@ -388,7 +567,8 @@ Namespace Services
                 .RevitSizeTable = BuildRevitSizeTable(),
                 .PmsSizeTable = BuildPmsTableSkeleton(),
                 .CompareTable = BuildCompareTable(),
-                .ErrorTable = BuildErrorTable()
+                .ErrorTable = BuildErrorTable(),
+                .SummaryTable = BuildSummaryTable()
             }
 
             If extractData Is Nothing OrElse Not extractData.Tables.Contains(TableRules) OrElse Not extractData.Tables.Contains(TableSizes) Then
@@ -408,6 +588,10 @@ Namespace Services
                 Dim ndVal = SafeDouble(meta.Rows(0)("NdRound"))
                 If ndVal > 0 Then
                     ndRound = CInt(Math.Truncate(ndVal))
+                End If
+                Dim tolVal = SafeDouble(meta.Rows(0)("Tolerance"))
+                If tolVal > 0 Then
+                    tol = tolVal
                 End If
             End If
 
@@ -459,14 +643,7 @@ Namespace Services
                 pmsDict(key).Add(p)
             Next
 
-            Dim uniqueMapKeys As New HashSet(Of Tuple(Of String, String))(TupleComparer())
             For Each m In mappings
-                Dim mk = Tuple.Create(NormalizePath(m.File), m.PipeTypeName)
-                If uniqueMapKeys.Contains(mk) Then
-                    Continue For
-                End If
-                uniqueMapKeys.Add(mk)
-
                 Dim mapRow = res.MapTable.NewRow()
                 mapRow("File") = m.File
                 mapRow("PipeTypeName") = m.PipeTypeName
@@ -583,6 +760,18 @@ Namespace Services
                 res.PmsSizeTable.Rows.Add(row)
             Next
 
+            Dim summaryRow = res.SummaryTable.NewRow()
+            Dim total As Integer = res.CompareTable.Rows.Count
+            summaryRow("Total") = total
+            summaryRow("OK") = CountStatus(res.CompareTable, "OK")
+            summaryRow("Mismatch") = CountStatus(res.CompareTable, "Mismatch")
+            summaryRow("MismatchID") = CountStatus(res.CompareTable, "MismatchID")
+            summaryRow("MismatchOD") = CountStatus(res.CompareTable, "MismatchOD")
+            summaryRow("MissingMapping") = CountStatus(res.CompareTable, "MissingMapping")
+            summaryRow("MissingRevitRow") = CountStatus(res.CompareTable, "MissingRevitRow")
+            summaryRow("MissingPmsRow") = CountStatus(res.CompareTable, "MissingPmsRow")
+            res.SummaryTable.Rows.Add(summaryRow)
+
             Return res
         End Function
 
@@ -628,6 +817,16 @@ Namespace Services
             Dim t As New DataTable(TableMeta)
             t.Columns.Add("NdRound", GetType(Integer))
             t.Columns.Add("CreatedAt", GetType(String))
+            t.Columns.Add("Tolerance", GetType(Double))
+            t.Columns.Add("ToolVersion", GetType(String))
+            Return t
+        End Function
+
+        Private Shared Function BuildFileTable() As DataTable
+            Dim t As New DataTable(TableFiles)
+            t.Columns.Add("File", GetType(String))
+            t.Columns.Add("FileName", GetType(String))
+            t.Columns.Add("ExtractedAt", GetType(String))
             Return t
         End Function
 
@@ -724,6 +923,19 @@ Namespace Services
             Return t
         End Function
 
+        Private Shared Function BuildSummaryTable() As DataTable
+            Dim t As New DataTable("Summary")
+            t.Columns.Add("Total", GetType(Integer))
+            t.Columns.Add("OK", GetType(Integer))
+            t.Columns.Add("Mismatch", GetType(Integer))
+            t.Columns.Add("MismatchID", GetType(Integer))
+            t.Columns.Add("MismatchOD", GetType(Integer))
+            t.Columns.Add("MissingMapping", GetType(Integer))
+            t.Columns.Add("MissingRevitRow", GetType(Integer))
+            t.Columns.Add("MissingPmsRow", GetType(Integer))
+            Return t
+        End Function
+
         Private Shared Sub AddCompareRow(table As DataTable,
                                          file As String,
                                          pipeType As String,
@@ -791,13 +1003,13 @@ Namespace Services
             Select Case n.ToLowerInvariant()
                 Case "class", "discipline", "trade"
                     Return "class"
-                Case "segment", "segmentkey", "segmentname", "pms_segment", "seg_pms"
+                Case "segment", "segmentkey", "segmentname", "segment key", "segment_name", "pms_segment", "seg_pms", "seg", "segkey"
                     Return "segment"
-                Case "nd", "nominaldiameter", "nd_mm", "nd_in"
+                Case "nd", "nominaldiameter", "nominal", "nominal diameter", "nd_mm", "nd_in"
                     Return "nd"
-                Case "id", "innerdiameter", "id_mm", "id_in"
+                Case "id", "innerdiameter", "inner", "inner diameter", "id_mm", "id_in"
                     Return "id"
-                Case "od", "outerdiameter", "od_mm", "od_in"
+                Case "od", "outerdiameter", "outer", "outer diameter", "od_mm", "od_in"
                     Return "od"
                 Case Else
                     Return String.Empty
@@ -1106,6 +1318,20 @@ Namespace Services
             Return New TupleComparerImpl()
         End Function
 
+        Private Shared Function CountStatus(t As DataTable, status As String) As Integer
+            If t Is Nothing Then
+                Return 0
+            End If
+            Dim cnt As Integer = 0
+            For Each r As DataRow In t.Rows
+                Dim s = SafeStr(r("Status"))
+                If String.Equals(s, status, StringComparison.OrdinalIgnoreCase) Then
+                    cnt += 1
+                End If
+            Next
+            Return cnt
+        End Function
+
         Private Class TupleComparerImpl
             Implements IEqualityComparer(Of Tuple(Of String, String))
 
@@ -1264,6 +1490,9 @@ Namespace Services
         Private Shared Sub EnsureSchema(ds As DataSet)
             If Not ds.Tables.Contains(TableMeta) Then
                 ds.Tables.Add(BuildMetaTable())
+            End If
+            If Not ds.Tables.Contains(TableFiles) Then
+                ds.Tables.Add(BuildFileTable())
             End If
             If Not ds.Tables.Contains(TableRules) Then
                 ds.Tables.Add(BuildRuleTable())
