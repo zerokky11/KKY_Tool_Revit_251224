@@ -952,7 +952,7 @@ Namespace Services
                     Dim revEl As RvtDB.Element = el
                     Dim famParam As RvtDB.Parameter = revEl.LookupParameter("Family")
                     If famParam Is Nothing Then
-                        famParam = revEl.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_FAMILY_NAME)
+                        famParam = revEl.Parameter(RvtDB.BuiltInParameter.ALL_MODEL_FAMILY_NAME)
                     End If
                     If famParam IsNot Nothing Then
                         fam = famParam.AsString()
@@ -963,7 +963,7 @@ Namespace Services
                     Dim revEl As RvtDB.Element = el
                     Dim typeParam As RvtDB.Parameter = revEl.LookupParameter("Type")
                     If typeParam Is Nothing Then
-                        typeParam = revEl.get_Parameter(RvtDB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
+                        typeParam = revEl.Parameter(RvtDB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
                     End If
                     If typeParam IsNot Nothing Then
                         typ = typeParam.AsString()
