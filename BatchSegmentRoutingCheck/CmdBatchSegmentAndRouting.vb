@@ -7,6 +7,7 @@ Imports System.Collections.Generic
 Imports System.Globalization
 Imports System.IO
 Imports System.Linq
+Imports System.Text.RegularExpressions
 
 Imports WinForms = System.Windows.Forms
 
@@ -45,6 +46,7 @@ Public Class BatchOptions
     Public Property RoutingCat As Nullable(Of RoutingCategory)
     Public Property Unit As UnitType
     Public Property OutputPath As String
+    Public Property ClassMaterialCheck As Boolean
 
     Public Sub New()
         RvtFiles = New List(Of String)()
@@ -52,6 +54,7 @@ Public Class BatchOptions
         RoutingCat = Nothing
         Unit = UnitType.Millimeter
         OutputPath = ""
+        ClassMaterialCheck = False
     End Sub
 End Class
 
@@ -73,6 +76,18 @@ Public Class RoutingRuleEntry
     Public Property PartType As String
     Public Property MinSize As Double
     Public Property MaxSize As Double
+End Class
+
+Public Class ClassMaterialResult
+    Public Property FileName As String
+    Public Property PipeTypeName As String
+    Public Property SubjectKind As String
+    Public Property FittingPart As String
+    Public Property SubjectName As String
+    Public Property SubjectClass As String
+    Public Property SegmentKey As String
+    Public Property SegmentClass As String
+    Public Property Status As String
 End Class
 
 Public Class ErrorEntry
@@ -107,6 +122,7 @@ Public Class BatchOptionsForm
     Private ReadOnly lblOutput As WinForms.Label
     Private ReadOnly txtOutputPath As WinForms.TextBox
     Private ReadOnly btnBrowseOutput As WinForms.Button
+    Private ReadOnly chkClassMaterial As WinForms.CheckBox
 
     Private ReadOnly btnRun As WinForms.Button
     Private ReadOnly btnCancel As WinForms.Button
@@ -161,6 +177,8 @@ Public Class BatchOptionsForm
         grpRoutingCategory.Controls.Add(cmbRoutingCategory)
         grpRoutingCategory.Enabled = False
 
+        chkClassMaterial = New WinForms.CheckBox() With {.Text = "Class 재질 매칭 검토", .Left = 490, .Top = 415, .Width = 220, .Checked = False, .Enabled = False}
+
         lblOutput = New WinForms.Label() With {.Text = "출력 Excel 경로:", .Left = 10, .Top = 430, .Width = 180}
         txtOutputPath = New WinForms.TextBox() With {.Left = 10, .Top = 455, .Width = 720}
         btnBrowseOutput = New WinForms.Button() With {.Text = "찾아보기...", .Left = 740, .Top = 452, .Width = 160}
@@ -179,6 +197,7 @@ Public Class BatchOptionsForm
         Me.Controls.Add(grpMode)
         Me.Controls.Add(grpUnit)
         Me.Controls.Add(grpRoutingCategory)
+        Me.Controls.Add(chkClassMaterial)
         Me.Controls.Add(lblOutput)
         Me.Controls.Add(txtOutputPath)
         Me.Controls.Add(btnBrowseOutput)
@@ -188,6 +207,10 @@ Public Class BatchOptionsForm
 
     Private Sub OnModeChanged(sender As Object, e As EventArgs)
         grpRoutingCategory.Enabled = rbRouting.Checked
+        chkClassMaterial.Enabled = rbRouting.Checked
+        If Not rbRouting.Checked Then
+            chkClassMaterial.Checked = False
+        End If
     End Sub
 
     Private Sub OnAddFolder(sender As Object, e As EventArgs)
@@ -265,6 +288,7 @@ Public Class BatchOptionsForm
         opt.Mode = If(rbSegment.Checked, BatchOptions.CheckMode.Segment, BatchOptions.CheckMode.RoutingPreference)
         opt.Unit = If(rbMm.Checked, BatchOptions.UnitType.Millimeter, BatchOptions.UnitType.Inch)
         opt.OutputPath = outPath
+        opt.ClassMaterialCheck = chkClassMaterial.Checked
 
         If opt.Mode = BatchOptions.CheckMode.RoutingPreference Then
             If cmbRoutingCategory.SelectedIndex < 0 Then
@@ -350,6 +374,7 @@ Public Class CmdBatchSegmentAndRouting
             Dim segAll As New List(Of SegmentSizeEntry)()
             Dim routingAll As New List(Of RoutingRuleEntry)()
             Dim errors As New List(Of ErrorEntry)()
+            Dim classMatches As List(Of ClassMaterialResult) = Nothing
 
             Dim prog As New ProgressForm()
             prog.Show()
@@ -420,7 +445,10 @@ Public Class CmdBatchSegmentAndRouting
             If opt.Mode = BatchOptions.CheckMode.Segment Then
                 ExportSegmentResultToExcel(opt.OutputPath, segAll, errors, unitLabel, opt.RvtFiles)
             Else
-                ExportRoutingResultToExcel(opt.OutputPath, routingAll, errors, unitLabel, opt.RvtFiles)
+                If opt.ClassMaterialCheck Then
+                    classMatches = BuildClassMaterialResults(routingAll)
+                End If
+                ExportRoutingResultToExcel(opt.OutputPath, routingAll, errors, unitLabel, opt.RvtFiles, classMatches)
             End If
 
             Dim failFiles As Integer = errors.Select(Function(x) x.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).Count()
@@ -671,6 +699,152 @@ Public Class CmdBatchSegmentAndRouting
     End Sub
 
     '=========================================================
+    ' Class Material Helpers
+    '=========================================================
+    Private Shared Function NormalizeClassToken(raw As String) As String
+        If String.IsNullOrWhiteSpace(raw) Then
+            Return String.Empty
+        End If
+        Dim trimmed As String = raw.Trim()
+        Dim normalized As String = Regex.Replace(trimmed, "\s+", " ")
+        Return normalized.Trim().ToLowerInvariant()
+    End Function
+
+    Private Shared Function ExtractSegmentClass(seg As String) As String
+        If String.IsNullOrWhiteSpace(seg) Then
+            Return String.Empty
+        End If
+        Dim token As String = seg.Trim()
+        Dim dashIdx As Integer = token.IndexOf(" - ", StringComparison.Ordinal)
+        If dashIdx >= 0 Then
+            token = token.Substring(0, dashIdx)
+        Else
+            Dim simpleDash As Integer = token.IndexOf("-"c)
+            If simpleDash > 0 Then
+                token = token.Substring(0, simpleDash)
+            End If
+        End If
+        token = token.Trim()
+
+        If token.EndsWith("Ref.", StringComparison.OrdinalIgnoreCase) Then
+            token = token.Substring(0, token.Length - 4)
+        ElseIf token.EndsWith("REF", StringComparison.OrdinalIgnoreCase) Then
+            token = token.Substring(0, token.Length - 3)
+        ElseIf token.EndsWith(".ref", StringComparison.OrdinalIgnoreCase) Then
+            token = token.Substring(0, token.Length - 4)
+        End If
+
+        token = token.Trim()
+        Return token
+    End Function
+
+    Private Shared Function ExtractSubjectClass(src As String) As String
+        If String.IsNullOrWhiteSpace(src) Then
+            Return String.Empty
+        End If
+
+        Dim trimmed As String = src.Trim()
+        Dim parts As String() = trimmed.Split(","c)
+        Dim candidate As String = String.Empty
+        If parts.Length >= 2 Then
+            candidate = parts(1).Trim()
+        End If
+
+        If String.IsNullOrWhiteSpace(candidate) Then
+            Dim m As Match = Regex.Match(trimmed, "\b[^,]*\([^()]+\)")
+            If m.Success Then
+                candidate = m.Value.Trim()
+            End If
+        End If
+
+        Return candidate
+    End Function
+
+    Private Shared Function BuildClassMaterialResults(entries As List(Of RoutingRuleEntry)) As List(Of ClassMaterialResult)
+        Dim res As New List(Of ClassMaterialResult)()
+        If entries Is Nothing OrElse entries.Count = 0 Then
+            Return res
+        End If
+
+        Dim groups = entries.GroupBy(Function(x) x.FileName & "|" & x.TypeName, StringComparer.OrdinalIgnoreCase)
+        For Each grp In groups
+            Dim keyParts As String() = grp.Key.Split("|"c)
+            Dim fileName As String = keyParts(0)
+            Dim typeName As String = keyParts(1)
+
+            Dim segmentNames As List(Of String) = grp.
+                Where(Function(x) x.GroupType = RvtDB.RoutingPreferenceRuleGroupType.Segments).
+                Select(Function(x) If(String.IsNullOrWhiteSpace(x.PartType), x.PartFamily, x.PartType)).
+                Where(Function(s) Not String.IsNullOrWhiteSpace(s)).
+                Distinct(StringComparer.OrdinalIgnoreCase).
+                ToList()
+
+            Dim subjects As New List(Of Tuple(Of String, String, String))()
+            subjects.Add(Tuple.Create("PipeType", "", typeName))
+
+            For Each fitting In grp.Where(Function(x) x.GroupType <> RvtDB.RoutingPreferenceRuleGroupType.Segments)
+                Dim subjectName As String = fitting.PartType
+                If String.IsNullOrWhiteSpace(subjectName) Then
+                    subjectName = fitting.PartFamily
+                End If
+                If String.IsNullOrWhiteSpace(subjectName) Then
+                    subjectName = fitting.GroupType.ToString()
+                End If
+                subjects.Add(Tuple.Create("Fitting", fitting.GroupType.ToString(), subjectName))
+            Next
+
+            If segmentNames.Count = 0 Then
+                For Each subj In subjects
+                    res.Add(New ClassMaterialResult With {
+                        .FileName = fileName,
+                        .PipeTypeName = typeName,
+                        .SubjectKind = subj.Item1,
+                        .FittingPart = subj.Item2,
+                        .SubjectName = subj.Item3,
+                        .SubjectClass = ExtractSubjectClass(subj.Item3),
+                        .SegmentKey = "",
+                        .SegmentClass = "",
+                        .Status = "NO_SEGMENT"
+                    })
+                Next
+                Continue For
+            End If
+
+            For Each subj In subjects
+                Dim subjClass As String = ExtractSubjectClass(subj.Item3)
+                Dim subjNorm As String = NormalizeClassToken(subjClass)
+                For Each segName In segmentNames
+                    Dim segClass As String = ExtractSegmentClass(segName)
+                    Dim segNorm As String = NormalizeClassToken(segClass)
+
+                    Dim status As String
+                    If String.IsNullOrWhiteSpace(segClass) OrElse String.IsNullOrWhiteSpace(subjClass) Then
+                        status = "UNPARSEABLE"
+                    ElseIf String.Equals(segNorm, subjNorm, StringComparison.Ordinal) Then
+                        status = "PASS"
+                    Else
+                        status = "MISMATCH"
+                    End If
+
+                    res.Add(New ClassMaterialResult With {
+                        .FileName = fileName,
+                        .PipeTypeName = typeName,
+                        .SubjectKind = subj.Item1,
+                        .FittingPart = subj.Item2,
+                        .SubjectName = subj.Item3,
+                        .SubjectClass = subjClass,
+                        .SegmentKey = segName,
+                        .SegmentClass = segClass,
+                        .Status = status
+                    })
+                Next
+            Next
+        Next
+
+        Return res
+    End Function
+
+    '=========================================================
     ' Export - Segment
     '=========================================================
     Private Sub ExportSegmentResultToExcel(outputXlsxPath As String,
@@ -779,7 +953,8 @@ Public Class CmdBatchSegmentAndRouting
                                           entries As List(Of RoutingRuleEntry),
                                           errors As List(Of ErrorEntry),
                                           unitLabel As String,
-                                          allFiles As List(Of String))
+                                          allFiles As List(Of String),
+                                          classMatches As List(Of ClassMaterialResult))
 
         Dim wb As IWorkbook = New XSSFWorkbook()
 
@@ -879,6 +1054,37 @@ Public Class CmdBatchSegmentAndRouting
             SetCell(row, 2, ee.Message)
             r += 1
         Next
+
+        If classMatches IsNot Nothing Then
+            Dim shClass As ISheet = wb.CreateSheet("Routing_ClassMatch")
+            Dim hc2 As IRow = shClass.CreateRow(0)
+            SetCell(hc2, 0, "File")
+            SetCell(hc2, 1, "PipeTypeName")
+            SetCell(hc2, 2, "SubjectKind")
+            SetCell(hc2, 3, "FittingPart")
+            SetCell(hc2, 4, "SubjectName")
+            SetCell(hc2, 5, "SubjectClass")
+            SetCell(hc2, 6, "SegmentKey")
+            SetCell(hc2, 7, "SegmentClass")
+            SetCell(hc2, 8, "Status")
+
+            r = 1
+            If classMatches.Count > 0 Then
+                For Each cm As ClassMaterialResult In classMatches
+                    Dim row As IRow = shClass.CreateRow(r)
+                    SetCell(row, 0, cm.FileName)
+                    SetCell(row, 1, cm.PipeTypeName)
+                    SetCell(row, 2, cm.SubjectKind)
+                    SetCell(row, 3, cm.FittingPart)
+                    SetCell(row, 4, cm.SubjectName)
+                    SetCell(row, 5, cm.SubjectClass)
+                    SetCell(row, 6, cm.SegmentKey)
+                    SetCell(row, 7, cm.SegmentClass)
+                    SetCell(row, 8, cm.Status)
+                    r += 1
+                Next
+            End If
+        End If
 
         Using fs As New FileStream(outputXlsxPath, FileMode.Create, FileAccess.Write, FileShare.None)
             wb.Write(fs)
