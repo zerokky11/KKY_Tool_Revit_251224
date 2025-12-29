@@ -622,7 +622,7 @@ Namespace Services
             Catch
                 ' 워크셰어링 여부 확인 실패는 무시하고 기본 옵션으로 계속 진행
             End Try
-        End Function
+        End Sub
 
         Private Shared Function BuildMetaTable() As DataTable
             Dim t As New DataTable(TableMeta)
