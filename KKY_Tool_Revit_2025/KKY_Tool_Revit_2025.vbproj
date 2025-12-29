@@ -170,9 +170,19 @@
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</EmbeddedResource>
 
-		<!-- 2025용 HubUI 리소스 (필요하면 유지) -->
-		<Content Include="Resources\HubUI\**\*" Link="Resources\HubUI\%(RecursiveDir)%(Filename)%(Extension)">
+		<!-- ✅ HubUI: 2025 프로젝트에 있으면 그걸 사용 -->
+		<Content Include="Resources\HubUI\**\*" Condition="Exists('Resources\HubUI\index.html')"
+				 Link="Resources\HubUI\%(RecursiveDir)%(Filename)%(Extension)">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<TargetPath>Resources\HubUI\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+		</Content>
+
+		<!-- ✅ HubUI: 2025 프로젝트에 없으면 2019-2023 리소스를 사용(링크 복사) -->
+		<Content Include="..\KKY_Tool_Revit_2019-2023\Resources\HubUI\**\*"
+				 Condition="!Exists('Resources\HubUI\index.html')"
+				 Link="Resources\HubUI\%(RecursiveDir)%(Filename)%(Extension)">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<TargetPath>Resources\HubUI\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
 		</Content>
 	</ItemGroup>
 
@@ -180,16 +190,31 @@
 		<None Include="My Project\Application.myapp" />
 	</ItemGroup>
 
-	<!-- 빌드 후 addin 자동 생성 -->
+	<!-- 빌드 후 addin 자동 생성 + HubUI 리소스도 Addins 폴더로 복사 -->
 	<Target Name="CreateAddin" AfterTargets="Build">
 		<PropertyGroup>
 			<AddinOutDir>$(AddinRoot)\$(AddinYear)\KKY_Tool_Revit</AddinOutDir>
 			<BuiltDll>$([System.IO.Path]::GetFullPath('$(OutputPath)$(AssemblyName).dll'))</BuiltDll>
 			<AddinFile>$(AddinRoot)\$(AddinYear)\KKY_Tool_Revit.addin</AddinFile>
 		</PropertyGroup>
+
 		<Message Text="AddinOutDir=$(AddinOutDir)" Importance="high" />
 		<Message Text="BuiltDll=$(BuiltDll)" Importance="high" />
 		<MakeDir Directories="$(AddinOutDir)" />
+
+		<!-- ✅ OutputPath에 HubUI가 실제로 생겼는지 체크 -->
+		<Error Condition="!Exists('$(OutputPath)Resources\HubUI\index.html')"
+			   Text="HubUI not found in output: $(OutputPath)Resources\HubUI\index.html (check Resources\HubUI content include)" />
+
+		<!-- ✅ Addins\2025\KKY_Tool_Revit 아래에도 Resources\HubUI를 같이 배포 -->
+		<ItemGroup>
+			<HubUiOutFiles Include="$(OutputPath)Resources\HubUI\**\*" />
+		</ItemGroup>
+		<MakeDir Directories="@(HubUiOutFiles->'$(AddinOutDir)\Resources\HubUI\%(RecursiveDir)')" />
+		<Copy SourceFiles="@(HubUiOutFiles)"
+			  DestinationFiles="@(HubUiOutFiles->'$(AddinOutDir)\Resources\HubUI\%(RecursiveDir)%(Filename)%(Extension)')"
+			  SkipUnchangedFiles="true" />
+
 		<ItemGroup>
 			<AddinXml Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot; standalone=&quot;no&quot;?&gt;" />
 			<AddinXml Include="&lt;RevitAddIns&gt;" />
@@ -197,12 +222,13 @@
 			<AddinXml Include="    &lt;Name&gt;KKY_Tool_Revit&lt;/Name&gt;" />
 			<AddinXml Include="    &lt;Assembly&gt;$(BuiltDll)&lt;/Assembly&gt;" />
 			<AddinXml Include="    &lt;AddInId&gt;8D83DB0A-B739-4ACD-A9DB-7B57A229D2A4&lt;/AddInId&gt;" />
-			<AddinXml Include="    &lt;FullClassName&gt;KKY_Tool_Revit.App&lt;/FullClassName&gt;" />
+			<AddinXml Include="    &lt;FullClassName&gt;KKY_Tool_Revit.KKY_Tool_Revit.App&lt;/FullClassName&gt;" />
 			<AddinXml Include="    &lt;VendorId&gt;KKY&lt;/VendorId&gt;" />
 			<AddinXml Include="    &lt;VendorDescription&gt;KKY Tools Hub&lt;/VendorDescription&gt;" />
 			<AddinXml Include="  &lt;/AddIn&gt;" />
 			<AddinXml Include="&lt;/RevitAddIns&gt;" />
 		</ItemGroup>
+
 		<WriteLinesToFile File="$(AddinFile)" Lines="@(AddinXml)" Overwrite="true" />
 		<Message Text="Created: $(AddinFile)" Importance="high" />
 	</Target>
