@@ -247,7 +247,13 @@ Namespace UI.Hub
                 If String.IsNullOrWhiteSpace(path) Then Return
                 Process.Start(New ProcessStartInfo(path) With {.UseShellExecute = True})
             Catch ex As Exception
-                SendToWeb("host:error", New With {.message = "엑셀을 열 수 없습니다: " & ex.Message})
+                Dim path = TryCast(GetProp(payload, "path"), String)
+                Dim msg = "엑셀을 열 수 없습니다: " & ex.Message
+                If String.IsNullOrWhiteSpace(path) Then
+                    SendToWeb("host:warn", New With {.message = msg})
+                Else
+                    SendToWeb("host:warn", New With {.message = msg, .path = path})
+                End If
             End Try
         End Sub
 
