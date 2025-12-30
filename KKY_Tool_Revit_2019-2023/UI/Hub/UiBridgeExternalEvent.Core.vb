@@ -250,25 +250,27 @@ Namespace UI.Hub
                 Return
             End If
 
-            Dim path As String = rawPath
+            Dim fullPath As String = rawPath
             Try
-                path = Path.GetFullPath(rawPath)
+                fullPath = System.IO.Path.GetFullPath(rawPath)
             Catch
+                ' ignore
             End Try
 
             Dim fileExists As Boolean = False
             Try
-                fileExists = File.Exists(path)
+                fileExists = System.IO.File.Exists(fullPath)
             Catch
+                ' ignore
             End Try
 
             If Not fileExists Then
-                SendToWeb("host:warn", New With {.message = "엑셀 파일을 찾을 수 없습니다: " & path, .path = path})
+                SendToWeb("host:warn", New With {.message = "엑셀 파일을 찾을 수 없습니다: " & fullPath, .path = fullPath})
                 Return
             End If
 
             Try
-                Dim info As New FileInfo(path)
+                Dim info As New System.IO.FileInfo(fullPath)
                 Dim lengthOk As Boolean = False
                 For i As Integer = 0 To 9
                     info.Refresh()
@@ -276,49 +278,52 @@ Namespace UI.Hub
                         lengthOk = True
                         Exit For
                     End If
-                    Thread.Sleep(200)
+                    System.Threading.Thread.Sleep(200)
                 Next
                 If Not lengthOk Then
-                    SendToWeb("host:warn", New With {.message = "파일 크기가 0입니다. 열기를 시도합니다: " & path, .path = path})
+                    SendToWeb("host:warn", New With {.message = "파일 크기가 0입니다. 열기를 시도합니다: " & fullPath, .path = fullPath})
                 End If
             Catch ex As Exception
-                SendToWeb("host:warn", New With {.message = "파일 상태 확인에 실패했습니다: " & ex.Message, .path = path})
+                SendToWeb("host:warn", New With {.message = "파일 상태 확인에 실패했습니다: " & ex.Message, .path = fullPath})
             End Try
 
             Dim opened As Boolean = False
             Dim firstError As Exception = Nothing
 
             Try
-                Dim psi As New ProcessStartInfo(path)
+                Dim psi As New System.Diagnostics.ProcessStartInfo(fullPath)
                 psi.UseShellExecute = True
-                Dim dir As String = Path.GetDirectoryName(path)
+
+                Dim dir As String = System.IO.Path.GetDirectoryName(fullPath)
                 If Not String.IsNullOrWhiteSpace(dir) Then
                     psi.WorkingDirectory = dir
                 End If
-                Process.Start(psi)
+
+                System.Diagnostics.Process.Start(psi)
                 opened = True
-                SendToWeb("host:info", New With {.message = "엑셀 열기를 시도했습니다: " & path, .path = path})
+                SendToWeb("host:info", New With {.message = "엑셀 열기를 시도했습니다: " & fullPath, .path = fullPath})
             Catch ex As Exception
                 firstError = ex
             End Try
 
             If Not opened Then
                 Try
-                    Dim psi As New ProcessStartInfo("explorer.exe", "/select,""" & path & """")
+                    Dim psi As New System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,""" & fullPath & """")
                     psi.UseShellExecute = True
-                    Process.Start(psi)
+                    System.Diagnostics.Process.Start(psi)
                     opened = True
-                    Dim warnMsg As String = "엑셀 열기에 실패하여 탐색기로 열었습니다: " & path
+
+                    Dim warnMsg As String = "엑셀 열기에 실패하여 탐색기로 열었습니다: " & fullPath
                     If firstError IsNot Nothing Then
                         warnMsg &= " (" & firstError.Message & ")"
                     End If
-                    SendToWeb("host:warn", New With {.message = warnMsg, .path = path})
+                    SendToWeb("host:warn", New With {.message = warnMsg, .path = fullPath})
                 Catch ex As Exception
                     Dim msg As String = "엑셀 열기 실패: " & ex.Message
                     If firstError IsNot Nothing Then
                         msg &= " / 최초 오류: " & firstError.Message
                     End If
-                    SendToWeb("host:warn", New With {.message = msg, .path = path})
+                    SendToWeb("host:warn", New With {.message = msg, .path = fullPath})
                 End Try
             End If
         End Sub
