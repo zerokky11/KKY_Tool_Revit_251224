@@ -4,6 +4,7 @@ import { post, onHost } from '../core/bridge.js';
 
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
 const LS_OPTS = 'kky_segmentpms_opts';
+const MAX_UI_ROWS = 200;
 
 function loadRvtList() {
   try {
@@ -248,8 +249,16 @@ export function renderSegmentPms() {
     state.results = payload;
     resBody.innerHTML = '';
     const rows = payload?.compare || [];
-    resInfo.textContent = `총 ${rows.length}건`;
-    rows.slice(0, 400).forEach(r => {
+    const total = rows.length;
+    const show = rows.slice(0, MAX_UI_ROWS);
+    if (total === 0) {
+      resInfo.textContent = '결과 없음';
+    } else if (total <= MAX_UI_ROWS) {
+      resInfo.textContent = `총 ${total}건`;
+    } else {
+      resInfo.textContent = `총 ${total}건 (화면에는 ${MAX_UI_ROWS}건만 표시, 나머지는 엑셀 저장으로 확인)`;
+    }
+    show.forEach(r => {
       const tr = document.createElement('tr');
       tr.append(td(r.File), td(r.PipeTypeName), td(r.SegmentRuleIndex), td(r.RevitSegmentKey), td(r.CLASS), td(r.PMS_SegmentKey), td(r.ND_mm));
       tr.append(td(`${r.Revit_ID}/${r.Revit_OD}`));
