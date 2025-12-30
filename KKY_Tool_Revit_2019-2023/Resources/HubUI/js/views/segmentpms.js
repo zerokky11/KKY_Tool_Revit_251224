@@ -342,7 +342,11 @@ export function renderSegmentPms() {
         updateButtons();
         break;
       case 'segmentpms:saved':
-        showExcelSavedDialog('결과를 저장했습니다.', msg.payload?.path);
+        showExcelSavedDialog('결과를 저장했습니다.', msg.payload?.path, (p) => {
+          const target = p || msg.payload?.path;
+          if (!target) { toast('열 수 있는 경로가 없습니다.', 'err'); return; }
+          post('excel:open', { path: target });
+        });
         break;
       case 'segmentpms:error':
         setBusy(false); state.busy = false;

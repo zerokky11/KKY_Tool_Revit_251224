@@ -530,10 +530,15 @@ Namespace UI.Hub
                     AddSheet(wb, "SegmentSizeRaw_PMS", pmsRows)
                     AddSheet(wb, "Summary", summaryRows)
                     AddSheet(wb, "Error", errorRows)
-                    Using fs As New FileStream(dlg.FileName, FileMode.Create, FileAccess.Write)
+                    Dim savePath As String = dlg.FileName
+                    Try
+                        savePath = Path.GetFullPath(dlg.FileName)
+                    Catch
+                    End Try
+                    Using fs As New FileStream(savePath, FileMode.Create, FileAccess.Write)
                         wb.Write(fs)
                     End Using
-                    SendToWeb("segmentpms:saved", New With {.path = dlg.FileName})
+                    SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
