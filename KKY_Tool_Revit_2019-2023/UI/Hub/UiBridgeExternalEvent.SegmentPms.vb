@@ -6,6 +6,7 @@ Imports System.Collections.Generic
 Imports System.Data
 Imports System.IO
 Imports System.Text
+Imports System.Threading
 Imports System.Windows.Forms
 Imports Autodesk.Revit.UI
 Imports KKY_Tool_Revit.Services
@@ -309,6 +310,7 @@ Namespace UI.Hub
                     _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts)
                     _lastExtractPath = dlg.FileName
                     SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
+                    WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
                     SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName, .summary = summary})
                 Catch ex As Exception
@@ -333,6 +335,7 @@ Namespace UI.Hub
                 Try
                     SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
                     _lastExtractPath = dlg.FileName
+                    WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
                     SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName, .summary = summary})
                 Catch ex As Exception
@@ -508,9 +511,9 @@ Namespace UI.Hub
                         savePath = System.IO.Path.GetFullPath(dlg.FileName)
                     Catch
                     End Try
-                    Using fs As New FileStream(savePath, FileMode.Create, FileAccess.Write)
-                        wb.Write(fs)
-                    End Using
+                    SaveWorkbookSafe(wb, savePath)
+                    WaitForFileReady(savePath)
+                    wb.Close()
                     SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
@@ -732,6 +735,74 @@ Namespace UI.Hub
             Next
             Return t
         End Function
+
+        Private Shared Sub SaveWorkbookSafe(wb As IWorkbook, outPath As String)
+            If wb Is Nothing OrElse String.IsNullOrWhiteSpace(outPath) Then
+                Return
+            End If
+
+            Dim tmpPath As String = outPath & ".tmp"
+            Dim dir As String = Path.GetDirectoryName(outPath)
+            If Not String.IsNullOrWhiteSpace(dir) AndAlso Not Directory.Exists(dir) Then
+                Directory.CreateDirectory(dir)
+            End If
+
+            Try
+                If File.Exists(tmpPath) Then
+                    File.Delete(tmpPath)
+                End If
+
+                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
+                    wb.Write(fs)
+                    fs.Flush()
+                End Using
+
+                Try
+                    If File.Exists(outPath) Then
+                        Try
+                            File.Replace(tmpPath, outPath, Nothing)
+                        Catch
+                            File.Delete(outPath)
+                            File.Move(tmpPath, outPath)
+                        End Try
+                    Else
+                        File.Move(tmpPath, outPath)
+                    End If
+                Finally
+                    If File.Exists(tmpPath) Then
+                        File.Delete(tmpPath)
+                    End If
+                End Try
+            Catch
+                If File.Exists(tmpPath) Then
+                    Try
+                        File.Delete(tmpPath)
+                    Catch
+                    End Try
+                End If
+                Throw
+            End Try
+        End Sub
+
+        Private Shared Sub WaitForFileReady(path As String)
+            If String.IsNullOrWhiteSpace(path) Then
+                Return
+            End If
+            For i As Integer = 0 To 4
+                Try
+                    If File.Exists(path) Then
+                        Dim info As New FileInfo(path)
+                        If info.Length > 0 Then
+                            Using fs As New FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
+                            End Using
+                            Exit For
+                        End If
+                    End If
+                Catch
+                End Try
+                Thread.Sleep(150)
+            Next
+        End Sub
 
         Private Shared Function NormalizePath(p As String) As String
             If String.IsNullOrWhiteSpace(p) Then

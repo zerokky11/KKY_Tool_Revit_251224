@@ -242,9 +242,8 @@ Namespace Services
             If ds.Tables.Contains(TableRules) Then WriteSheet(wb, TableRules, ds.Tables(TableRules))
             If ds.Tables.Contains(TableSizes) Then WriteSheet(wb, TableSizes, ds.Tables(TableSizes))
             If ds.Tables.Contains(TableRouting) Then WriteSheet(wb, TableRouting, ds.Tables(TableRouting))
-            Using fs As New FileStream(path, FileMode.Create, FileAccess.Write)
-                wb.Write(fs)
-            End Using
+            SaveWorkbookSafely(wb, path)
+            wb.Close()
         End Sub
 
         Public Shared Function LoadExtractFromXlsx(path As String) As DataSet
@@ -502,6 +501,21 @@ Namespace Services
             Return result
         End Function
 
+        Private Class RevitSegmentKeyInfo
+            Public Property Raw As String = String.Empty
+            Public Property BaseCode As String = String.Empty
+            Public Property Suffix As String = String.Empty
+            Public Property MaterialToken As String = String.Empty
+        End Class
+
+        Private Class PmsSegmentKeyInfo
+            Public Property PmsKeyRaw As String = String.Empty
+            Public Property BaseCode As String = String.Empty
+            Public Property Suffix As String = String.Empty
+            Public Property MaterialToken As String = String.Empty
+            Public Property IsGroupLike As Boolean
+        End Class
+
         Private Class SuggestionResult
             Public Property BestClass As String = String.Empty
             Public Property BestSegment As String = String.Empty
@@ -513,22 +527,24 @@ Namespace Services
             If String.IsNullOrWhiteSpace(segmentKey) OrElse pmsData Is Nothing Then
                 Return res
             End If
-            Dim segTokens = TokenizeForSuggest(segmentKey)
-            If segTokens.Count = 0 Then
+            Dim revitParsed = ParseRevitSegmentKey(segmentKey)
+            Dim normRevit = NormalizeForSimilarity(segmentKey)
+            If String.IsNullOrWhiteSpace(normRevit) Then
                 Return res
             End If
-            Dim bestScore As Double = -1
-            Dim bestExact As Integer = -1
+            Dim bestScore As Double = Double.MinValue
+            Dim bestStructure As Double = Double.MinValue
             Dim bestLenDiff As Integer = Integer.MaxValue
             For Each p In pmsData
-                Dim pTokens = TokenizeForSuggest(p.SegmentKey)
-                If pTokens.Count = 0 Then
+                Dim pParsed = ParsePmsSegmentKey(p.SegmentKey)
+                Dim normPms = NormalizeForSimilarity(p.SegmentKey)
+                If String.IsNullOrWhiteSpace(normPms) Then
                     Continue For
                 End If
-                Dim info = ComputeSuggestionScore(segTokens, pTokens)
-                If info.Score > bestScore OrElse (info.Score = bestScore AndAlso info.ExactCount > bestExact) OrElse (info.Score = bestScore AndAlso info.ExactCount = bestExact AndAlso info.LenDiff < bestLenDiff) Then
+                Dim info = ComputeStructuredScore(revitParsed, normRevit, pParsed, normPms)
+                If info.Structural > bestStructure OrElse (Math.Abs(info.Structural - bestStructure) < 0.0001R AndAlso info.Score > bestScore) OrElse (Math.Abs(info.Structural - bestStructure) < 0.0001R AndAlso Math.Abs(info.Score - bestScore) < 0.0001R AndAlso info.LenDiff < bestLenDiff) Then
+                    bestStructure = info.Structural
                     bestScore = info.Score
-                    bestExact = info.ExactCount
                     bestLenDiff = info.LenDiff
                     res.BestClass = p.Class
                     res.BestSegment = p.SegmentKey
@@ -542,64 +558,189 @@ Namespace Services
             Return res
         End Function
 
-        Private Class ScoreInfo
+        Private Class CandidateScore
+            Public Property Structural As Double
+            Public Property Similarity As Double
             Public Property Score As Double
-            Public Property ExactCount As Integer
             Public Property LenDiff As Integer
         End Class
 
-        Private Shared Function ComputeSuggestionScore(targetTokens As List(Of String), candidateTokens As List(Of String)) As ScoreInfo
-            Dim info As New ScoreInfo With {.Score = 0, .ExactCount = 0, .LenDiff = Math.Abs(targetTokens.Count - candidateTokens.Count)}
-            Dim pos As Integer = 0
-            For Each t In targetTokens
-                Dim weight As Double = If(t.Length <= 2, 0.5R, 1.0R)
-                Dim found As Boolean = False
-                For i As Integer = pos To candidateTokens.Count - 1
-                    Dim cand = candidateTokens(i)
-                    If String.Equals(cand, t, StringComparison.OrdinalIgnoreCase) Then
-                        info.Score += 2 * weight
-                        info.ExactCount += 1
-                        pos = i + 1
-                        found = True
-                        Exit For
-                    End If
-                    If cand.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0 OrElse t.IndexOf(cand, StringComparison.OrdinalIgnoreCase) >= 0 Then
-                        info.Score += 1 * weight
-                        pos = i + 1
-                        found = True
-                        Exit For
-                    End If
-                Next
-                If Not found Then
-                    info.Score -= 0.1R * weight ' 약한 패널티
-                End If
-            Next
+        Private Shared Function ParseRevitSegmentKey(segmentKey As String) As RevitSegmentKeyInfo
+            Dim info As New RevitSegmentKeyInfo With {.Raw = SafeStr(segmentKey)}
+            Dim txt = info.Raw
+            If String.IsNullOrWhiteSpace(txt) Then
+                Return info
+            End If
+
+            Dim baseMatch = Regex.Match(txt, "^\s*([A-Z]\d+[A-Z0-9]*)", RegexOptions.IgnoreCase)
+            If baseMatch.Success AndAlso baseMatch.Groups.Count > 1 Then
+                info.BaseCode = baseMatch.Groups(1).Value.ToUpperInvariant()
+            End If
+
+            Dim suffixMatch = Regex.Match(txt, "^[\s]*[A-Z]\d+[A-Z0-9]*\s+(AP|MP|EP)", RegexOptions.IgnoreCase)
+            If suffixMatch.Success AndAlso suffixMatch.Groups.Count > 1 Then
+                info.Suffix = NormalizeSuffix(suffixMatch.Groups(1).Value)
+            End If
+
+            info.MaterialToken = ExtractMaterialToken(txt)
             Return info
         End Function
 
-        Private Shared Function TokenizeForSuggest(text As String) As List(Of String)
-            Dim list As New List(Of String)()
-            Dim norm = NormalizeForSuggest(text)
-            If String.IsNullOrWhiteSpace(norm) Then
-                Return list
+        Private Shared Function ParsePmsSegmentKey(segmentKey As String) As PmsSegmentKeyInfo
+            Dim info As New PmsSegmentKeyInfo With {.PmsKeyRaw = SafeStr(segmentKey)}
+            Dim txt = info.PmsKeyRaw
+            If String.IsNullOrWhiteSpace(txt) Then
+                Return info
             End If
-            For Each part In norm.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
-                Dim trimmed = part.Trim()
-                If Not String.IsNullOrWhiteSpace(trimmed) Then
-                    list.Add(trimmed)
-                End If
-            Next
-            Return list
+
+            Dim work = txt
+            Dim pipeIdx As Integer = work.LastIndexOf("|"c)
+            If pipeIdx >= 0 AndAlso pipeIdx < work.Length - 1 Then
+                work = work.Substring(pipeIdx + 1)
+            End If
+            work = work.Trim()
+
+            Dim parenIdx As Integer = work.IndexOf("("c)
+            Dim basePart As String = If(parenIdx >= 0, work.Substring(0, parenIdx), work)
+            info.BaseCode = basePart.Trim().ToUpperInvariant()
+
+            Dim suffixMatch = Regex.Match(work, "\(\s*(A\.P|M\.P|E\.P)\s*\)", RegexOptions.IgnoreCase)
+            If suffixMatch.Success AndAlso suffixMatch.Groups.Count > 1 Then
+                info.Suffix = NormalizeSuffix(suffixMatch.Groups(1).Value)
+            End If
+
+            info.IsGroupLike = info.BaseCode.Contains("/") OrElse Regex.IsMatch(work, "\([^\)]*\+", RegexOptions.IgnoreCase)
+            info.MaterialToken = ExtractMaterialToken(work)
+            Return info
         End Function
 
-        Private Shared Function NormalizeForSuggest(text As String) As String
+        Private Shared Function NormalizeSuffix(token As String) As String
+            If String.IsNullOrWhiteSpace(token) Then
+                Return String.Empty
+            End If
+            Dim upper = token.ToUpperInvariant().Replace(".", String.Empty)
+            Select Case upper
+                Case "AP"
+                    Return "A.P"
+                Case "MP"
+                    Return "M.P"
+                Case "EP"
+                    Return "E.P"
+                Case Else
+                    Return token.ToUpperInvariant().Trim()
+            End Select
+        End Function
+
+        Private Shared Function ExtractMaterialToken(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+            Dim m = Regex.Match(text, "STS\s*\d+[A-Z]*", RegexOptions.IgnoreCase)
+            If m.Success Then
+                Return NormalizeMaterialToken(m.Value)
+            End If
+            Return String.Empty
+        End Function
+
+        Private Shared Function NormalizeMaterialToken(token As String) As String
+            If String.IsNullOrWhiteSpace(token) Then
+                Return String.Empty
+            End If
+            Dim normalized = Regex.Replace(token, "\s+", " ").Trim().ToUpperInvariant()
+            Return normalized
+        End Function
+
+        Private Shared Function ComputeStructuredScore(revitInfo As RevitSegmentKeyInfo,
+                                                       normRevit As String,
+                                                       pmsInfo As PmsSegmentKeyInfo,
+                                                       normPms As String) As CandidateScore
+            Dim structural As Double = 0
+
+            If Not String.IsNullOrWhiteSpace(revitInfo.BaseCode) AndAlso Not String.IsNullOrWhiteSpace(pmsInfo.BaseCode) AndAlso
+               revitInfo.BaseCode.Equals(pmsInfo.BaseCode, StringComparison.OrdinalIgnoreCase) Then
+                structural += 80
+            End If
+
+            If Not String.IsNullOrWhiteSpace(revitInfo.Suffix) Then
+                If Not String.IsNullOrWhiteSpace(pmsInfo.Suffix) Then
+                    If revitInfo.Suffix.Equals(pmsInfo.Suffix, StringComparison.OrdinalIgnoreCase) Then
+                        structural += 60
+                    Else
+                        structural -= 120
+                    End If
+                Else
+                    structural -= 80
+                End If
+            Else
+                If String.IsNullOrWhiteSpace(pmsInfo.Suffix) Then
+                    structural += 25
+                Else
+                    structural -= 30
+                End If
+            End If
+
+            Dim revMat = NormalizeMaterialToken(revitInfo.MaterialToken)
+            Dim pmsMat = NormalizeMaterialToken(pmsInfo.MaterialToken)
+            If Not String.IsNullOrWhiteSpace(revMat) AndAlso revMat.Equals(pmsMat, StringComparison.OrdinalIgnoreCase) Then
+                structural += 10
+            End If
+
+            If pmsInfo.IsGroupLike Then
+                structural -= 40
+            End If
+
+            Dim similarity = ComputeSimilarityBoost(normRevit, normPms)
+            Dim total = structural + similarity
+            Dim lenDiff = Math.Abs(normRevit.Length - normPms.Length)
+
+            Return New CandidateScore With {
+                .Structural = structural,
+                .Similarity = similarity,
+                .Score = total,
+                .LenDiff = lenDiff
+            }
+        End Function
+
+        Private Shared Function NormalizeForSimilarity(text As String) As String
             If String.IsNullOrWhiteSpace(text) Then
                 Return String.Empty
             End If
             Dim upper = text.ToUpperInvariant()
-            Dim cleaned = Regex.Replace(upper, "[^A-Z0-9]+", " ")
-            cleaned = Regex.Replace(cleaned, "\s+", " ").Trim()
-            Return cleaned
+            Dim cleaned = Regex.Replace(upper, "[\s\._\-\(\)\+\/\|:]+", String.Empty)
+            cleaned = Regex.Replace(cleaned, "\s+", String.Empty)
+            Return cleaned.Trim()
+        End Function
+
+        Private Shared Function ComputeSimilarityBoost(a As String, b As String) As Double
+            If String.IsNullOrWhiteSpace(a) OrElse String.IsNullOrWhiteSpace(b) Then
+                Return 0
+            End If
+            Dim lcs = LongestCommonSubsequenceLength(a, b)
+            Dim maxLen = Math.Max(a.Length, b.Length)
+            If maxLen = 0 Then
+                Return 0
+            End If
+            Dim ratio = CDbl(lcs) / CDbl(maxLen)
+            Return Math.Max(0, Math.Min(20.0R, ratio * 20.0R))
+        End Function
+
+        Private Shared Function LongestCommonSubsequenceLength(a As String, b As String) As Integer
+            If String.IsNullOrEmpty(a) OrElse String.IsNullOrEmpty(b) Then
+                Return 0
+            End If
+            Dim n As Integer = a.Length
+            Dim m As Integer = b.Length
+            Dim dp(n, m) As Integer
+            For i As Integer = 1 To n
+                For j As Integer = 1 To m
+                    If a(i - 1) = b(j - 1) Then
+                        dp(i, j) = dp(i - 1, j - 1) + 1
+                    Else
+                        dp(i, j) = Math.Max(dp(i - 1, j), dp(i, j - 1))
+                    End If
+                Next
+            Next
+            Return dp(n, m)
         End Function
 
         Public Shared Function ExpandGroupSelections(groups As List(Of MappingGroup), selections As List(Of GroupSelection)) As List(Of MappingSelection)
@@ -1777,60 +1918,6 @@ Namespace Services
             Return compact
         End Function
 
-        Private Shared Function SimilarityScore(a As String, b As String) As Double
-            If String.IsNullOrEmpty(a) OrElse String.IsNullOrEmpty(b) Then
-                Return 0
-            End If
-            If String.Equals(a, b, StringComparison.OrdinalIgnoreCase) Then
-                Return 1.2R
-            End If
-            Dim prefixBonus As Double = 0
-            Dim minLen As Integer = Math.Min(a.Length, b.Length)
-            Dim commonPrefix As Integer = 0
-            For i As Integer = 0 To minLen - 1
-                If Char.ToUpperInvariant(a(i)) = Char.ToUpperInvariant(b(i)) Then
-                    commonPrefix += 1
-                Else
-                    Exit For
-                End If
-            Next
-            If commonPrefix >= 4 Then
-                prefixBonus = 0.3R
-            End If
-            Dim dist = LevenshteinDistance(a, b)
-            Dim maxLen = Math.Max(a.Length, b.Length)
-            If maxLen = 0 Then
-                Return 0
-            End If
-            Dim baseScore = 1.0R - (CDbl(dist) / CDbl(maxLen))
-            Return baseScore + prefixBonus
-        End Function
-
-        Private Shared Function LevenshteinDistance(a As String, b As String) As Integer
-            If a Is Nothing Then
-                a = String.Empty
-            End If
-            If b Is Nothing Then
-                b = String.Empty
-            End If
-            Dim n As Integer = a.Length
-            Dim m As Integer = b.Length
-            Dim d(n, m) As Integer
-            For i As Integer = 0 To n
-                d(i, 0) = i
-            Next
-            For j As Integer = 0 To m
-                d(0, j) = j
-            Next
-            For i As Integer = 1 To n
-                For j As Integer = 1 To m
-                    Dim cost As Integer = If(Char.ToUpperInvariant(a(i - 1)) = Char.ToUpperInvariant(b(j - 1)), 0, 1)
-                    d(i, j) = Math.Min(Math.Min(d(i - 1, j) + 1, d(i, j - 1) + 1), d(i - 1, j - 1) + cost)
-                Next
-            Next
-            Return d(n, m)
-        End Function
-
         Private Shared Function NormalizePath(p As String) As String
             If String.IsNullOrWhiteSpace(p) Then
                 Return String.Empty
@@ -2031,6 +2118,54 @@ Namespace Services
             If Not ds.Tables.Contains(TableRouting) Then
                 ds.Tables.Add(BuildRoutingTable())
             End If
+        End Sub
+
+        Private Shared Sub SaveWorkbookSafely(wb As IWorkbook, outPath As String)
+            If wb Is Nothing OrElse String.IsNullOrWhiteSpace(outPath) Then
+                Return
+            End If
+
+            Dim tmpPath As String = outPath & ".tmp"
+            Dim dir As String = Path.GetDirectoryName(outPath)
+            If Not String.IsNullOrWhiteSpace(dir) AndAlso Not Directory.Exists(dir) Then
+                Directory.CreateDirectory(dir)
+            End If
+
+            Try
+                If File.Exists(tmpPath) Then
+                    File.Delete(tmpPath)
+                End If
+
+                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
+                    wb.Write(fs)
+                    fs.Flush()
+                End Using
+
+                Try
+                    If File.Exists(outPath) Then
+                        Try
+                            File.Replace(tmpPath, outPath, Nothing)
+                        Catch
+                            File.Delete(outPath)
+                            File.Move(tmpPath, outPath)
+                        End Try
+                    Else
+                        File.Move(tmpPath, outPath)
+                    End If
+                Finally
+                    If File.Exists(tmpPath) Then
+                        File.Delete(tmpPath)
+                    End If
+                End Try
+            Catch
+                If File.Exists(tmpPath) Then
+                    Try
+                        File.Delete(tmpPath)
+                    Catch
+                    End Try
+                End If
+                Throw
+            End Try
         End Sub
 
         Private Shared Sub WriteSheet(wb As IWorkbook, name As String, t As DataTable)

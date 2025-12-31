@@ -3,6 +3,7 @@ import { renderTopbar } from '../core/topbar.js';
 import { post, onHost } from '../core/bridge.js';
 
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
+const SUGGEST_SCORE_THRESHOLD = 70;
 
 function loadRvtList() {
   try {
@@ -158,10 +159,10 @@ export function renderSegmentPms() {
       const suggLabel = document.createElement('small'); suggLabel.className = 'segmentpms-suggest';
       const localSuggestion = suggestPms(g.displayKey || g.groupKey, state.pmsOpts);
       const backendSuggestion = normalizeSuggestion(state.suggestions.get(g.groupKey));
-      const groupSuggestion = normalizeSuggestion(g.suggestedSegmentKey ? { cls: g.suggestedClass, segment: g.suggestedSegmentKey } : null);
+      const groupSuggestion = normalizeSuggestion(g.suggestedSegmentKey ? { cls: g.suggestedClass, segment: g.suggestedSegmentKey, score: g.score || g.Score } : null);
       const applySuggestion = () => {
-        const sug = localSuggestion || backendSuggestion || groupSuggestion;
-        if (sug && sug.segment) {
+        const sug = pickBestSuggestion([backendSuggestion, groupSuggestion, localSuggestion]);
+        if (sug && sug.segment && (sug.score || 0) >= SUGGEST_SCORE_THRESHOLD) {
           pmsSel.value = `${sug.cls}|||${sug.segment}`;
           suggLabel.textContent = '추천 적용';
           commitSelection(g.groupKey, pmsSel.value, 'Suggest');
@@ -316,7 +317,9 @@ function buildSuggestionMap(list) {
   list.forEach(s => {
     const key = s.groupKey || s.GroupKey || s.segmentKey || s.SegmentKey || s.file;
     if (!key) return;
-    map.set(String(key), { pmsClass: s.pmsClass || s.PmsClass, pmsSegmentKey: s.pmsSegmentKey || s.PmsSegmentKey });
+    const rawScore = Number(s.score ?? s.Score ?? 0);
+    const score = Number.isFinite(rawScore) ? rawScore : 0;
+    map.set(String(key), { pmsClass: s.pmsClass || s.PmsClass, pmsSegmentKey: s.pmsSegmentKey || s.PmsSegmentKey, score });
   });
   return map;
 }
@@ -325,8 +328,20 @@ function normalizeSuggestion(sug) {
   if (!sug) return null;
   const cls = sug.cls || sug.pmsClass || sug.suggestedClass || '';
   const segment = sug.segment || sug.pmsSegmentKey || sug.suggestedSegmentKey || '';
+  const rawScore = Number(sug.score ?? sug.Score ?? 0);
+  const score = Number.isFinite(rawScore) ? rawScore : 0;
   if (!segment) return null;
-  return { cls, segment };
+  return { cls, segment, score };
+}
+
+function pickBestSuggestion(candidates) {
+  return candidates
+    .filter(Boolean)
+    .reduce((best, cur) => {
+      const curScore = Number.isFinite(cur.score) ? cur.score : 0;
+      if (!best || curScore > best.score) return { ...cur, score: curScore };
+      return best;
+    }, null);
 }
 
 function suggestPms(revitSegmentKey, pmsOpts) {
@@ -343,7 +358,7 @@ function suggestPms(revitSegmentKey, pmsOpts) {
     }
   });
   if (!best || best.score === 0) return null;
-  return { cls: best.cls, segment: best.segment };
+  return { cls: best.cls, segment: best.segment, score: best.score || 0 };
 }
 
 function tokenize(text) {
