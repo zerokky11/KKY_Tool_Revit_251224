@@ -448,7 +448,7 @@ Namespace UI.Hub
                 Dim run = SegmentPmsCheckService.RunCompare(_extractData, _pmsRows, maps, opts)
                 _lastRunResult = run
                 _segmentPmsLastResult = New SegmentPmsResultCache With {.RunResult = run, .TotalCount = If(run.CompareTable Is Nothing, 0, run.CompareTable.Rows.Count)}
-                Dim compare = DataTableToObjects(run.CompareTable, maxRows:=200)
+                Dim compare = DataTableToObjects(run.CompareTable)
                 Dim map = DataTableToObjects(run.MapTable)
                 Dim revitRaw = DataTableToObjects(run.RevitSizeTable)
                 Dim pmsRaw = DataTableToObjects(run.PmsSizeTable)
@@ -501,10 +501,10 @@ Namespace UI.Hub
 
                     AddSheet(wb, "Pipe Segment Class검토", classRows, New List(Of String) From {"File", "PipeType", "Segment", "Class검토결과"})
                     AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"File", "PipeType", "ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Result"})
-                    AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Class검토"})
+                    AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Type", "Class검토"})
                     Dim savePath As String = dlg.FileName
                     Try
-                        savePath = Path.GetFullPath(dlg.FileName)
+                        savePath = System.IO.Path.GetFullPath(dlg.FileName)
                     Catch
                     End Try
                     Using fs As New FileStream(savePath, FileMode.Create, FileAccess.Write)
@@ -663,6 +663,8 @@ Namespace UI.Hub
                 headRow.CreateCell(ci).SetCellValue(columns(ci))
             Next
 
+            Dim numStyle = wb.CreateCellStyle()
+            numStyle.DataFormat = wb.CreateDataFormat().GetFormat("0.###############")
             Dim dataRows = If(rows, New List(Of Dictionary(Of String, Object))())
             Dim rIndex As Integer = 1
             For Each item In dataRows
@@ -673,11 +675,17 @@ Namespace UI.Hub
                     If item IsNot Nothing Then
                         item.TryGetValue(key, v)
                     End If
-                    Dim cellText As String = String.Empty
-                    If v IsNot Nothing AndAlso Not TypeOf v Is DBNull Then
-                        cellText = v.ToString()
+                    Dim cell = row.CreateCell(ci)
+                    If v Is Nothing OrElse TypeOf v Is DBNull Then
+                        cell.SetCellValue(String.Empty)
+                    ElseIf TypeOf v Is Double OrElse TypeOf v Is Single OrElse TypeOf v Is Decimal Then
+                        cell.SetCellValue(Convert.ToDouble(v))
+                        cell.CellStyle = numStyle
+                    ElseIf TypeOf v Is Integer OrElse TypeOf v Is Long OrElse TypeOf v Is Short Then
+                        cell.SetCellValue(Convert.ToDouble(v))
+                    Else
+                        cell.SetCellValue(v.ToString())
                     End If
-                    row.CreateCell(ci).SetCellValue(cellText)
                 Next
                 rIndex += 1
             Next
