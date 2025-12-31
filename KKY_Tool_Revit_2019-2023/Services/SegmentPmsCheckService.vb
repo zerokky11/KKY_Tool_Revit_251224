@@ -184,6 +184,7 @@ Namespace Services
                         row("RuleType") = info.RuleType
                         row("PartId") = info.PartId
                         row("PartName") = info.PartName
+                        row("TypeName") = info.TypeName
                         routing.Rows.Add(row)
                     Next
 
@@ -352,9 +353,9 @@ Namespace Services
                 Dim dataRow = res.Table.NewRow()
                 dataRow("CLASS") = cls
                 dataRow("PMS_SegmentKey") = seg
-                dataRow("ND_mm") = ndMm.ToString("0.###", CultureInfo.InvariantCulture)
-                dataRow("ID_mm") = idMm.ToString("0.###", CultureInfo.InvariantCulture)
-                dataRow("OD_mm") = odMm.ToString("0.###", CultureInfo.InvariantCulture)
+                dataRow("ND_mm") = ndMm
+                dataRow("ID_mm") = idMm
+                dataRow("OD_mm") = odMm
                 res.Table.Rows.Add(dataRow)
 
                 res.Rows.Add(New PmsRow With {
@@ -388,27 +389,7 @@ Namespace Services
                 Dim ruleIdx = SafeIntObj(r("RuleIndex"))
                 Dim segId = SafeIntObj(r("SegmentId"))
                 Dim segKey = SafeStr(r("SegmentKey"))
-                Dim normSeg = NormalizeKey(segKey)
-
-                Dim bestScore As Double = -1
-                Dim bestClass As String = String.Empty
-                Dim bestSeg As String = String.Empty
-
-                For Each p In pmsData
-                    Dim normP = NormalizeKey(p.SegmentKey)
-                    Dim sim = SimilarityScore(normSeg, normP)
-                    If sim > bestScore Then
-                        bestScore = sim
-                        bestClass = p.Class
-                        bestSeg = p.SegmentKey
-                    End If
-                Next
-
-                If bestScore < 0.4R Then
-                    bestScore = -1
-                    bestClass = String.Empty
-                    bestSeg = String.Empty
-                End If
+                Dim best = FindBestSuggestion(segKey, pmsData)
 
                 result.Add(New SuggestedMapping With {
                     .File = filePath,
@@ -416,9 +397,9 @@ Namespace Services
                     .RuleIndex = ruleIdx,
                     .SegmentId = segId,
                     .SegmentKey = segKey,
-                    .PmsClass = bestClass,
-                    .PmsSegmentKey = bestSeg,
-                    .Score = bestScore
+                    .PmsClass = best.BestClass,
+                    .PmsSegmentKey = best.BestSegment,
+                    .Score = best.Score
                 })
             Next
 
@@ -502,34 +483,123 @@ Namespace Services
                 Return result
             End If
             For Each g In groups
-                Dim bestScore As Double = -1
-                Dim bestClass As String = String.Empty
-                Dim bestSeg As String = String.Empty
-                For Each p In pmsData
-                    Dim normP = NormalizeKey(p.SegmentKey)
-                    Dim sim = SimilarityScore(g.NormalizedKey, normP)
-                    If sim > bestScore Then
-                        bestScore = sim
-                        bestClass = p.Class
-                        bestSeg = p.SegmentKey
-                    End If
-                Next
-                If bestScore >= 0.4R Then
-                    g.SuggestedClass = bestClass
-                    g.SuggestedSegmentKey = bestSeg
+                Dim best = FindBestSuggestion(g.DisplayKey, pmsData)
+                If best.Score > 0 Then
+                    g.SuggestedClass = best.BestClass
+                    g.SuggestedSegmentKey = best.BestSegment
                     result.Add(New SuggestedMapping With {
                         .File = g.GroupKey,
                         .PipeTypeName = g.DisplayKey,
                         .RuleIndex = 0,
                         .SegmentId = 0,
                         .SegmentKey = g.GroupKey,
-                        .PmsClass = bestClass,
-                        .PmsSegmentKey = bestSeg,
-                        .Score = bestScore
+                        .PmsClass = best.BestClass,
+                        .PmsSegmentKey = best.BestSegment,
+                        .Score = best.Score
                     })
                 End If
             Next
             Return result
+        End Function
+
+        Private Class SuggestionResult
+            Public Property BestClass As String = String.Empty
+            Public Property BestSegment As String = String.Empty
+            Public Property Score As Double
+        End Class
+
+        Private Shared Function FindBestSuggestion(segmentKey As String, pmsData As List(Of PmsRow)) As SuggestionResult
+            Dim res As New SuggestionResult()
+            If String.IsNullOrWhiteSpace(segmentKey) OrElse pmsData Is Nothing Then
+                Return res
+            End If
+            Dim segTokens = TokenizeForSuggest(segmentKey)
+            If segTokens.Count = 0 Then
+                Return res
+            End If
+            Dim bestScore As Double = -1
+            Dim bestExact As Integer = -1
+            Dim bestLenDiff As Integer = Integer.MaxValue
+            For Each p In pmsData
+                Dim pTokens = TokenizeForSuggest(p.SegmentKey)
+                If pTokens.Count = 0 Then
+                    Continue For
+                End If
+                Dim info = ComputeSuggestionScore(segTokens, pTokens)
+                If info.Score > bestScore OrElse (info.Score = bestScore AndAlso info.ExactCount > bestExact) OrElse (info.Score = bestScore AndAlso info.ExactCount = bestExact AndAlso info.LenDiff < bestLenDiff) Then
+                    bestScore = info.Score
+                    bestExact = info.ExactCount
+                    bestLenDiff = info.LenDiff
+                    res.BestClass = p.Class
+                    res.BestSegment = p.SegmentKey
+                    res.Score = info.Score
+                End If
+            Next
+            If res.Score <= 0 Then
+                res.BestClass = String.Empty
+                res.BestSegment = String.Empty
+            End If
+            Return res
+        End Function
+
+        Private Class ScoreInfo
+            Public Property Score As Double
+            Public Property ExactCount As Integer
+            Public Property LenDiff As Integer
+        End Class
+
+        Private Shared Function ComputeSuggestionScore(targetTokens As List(Of String), candidateTokens As List(Of String)) As ScoreInfo
+            Dim info As New ScoreInfo With {.Score = 0, .ExactCount = 0, .LenDiff = Math.Abs(targetTokens.Count - candidateTokens.Count)}
+            Dim pos As Integer = 0
+            For Each t In targetTokens
+                Dim weight As Double = If(t.Length <= 2, 0.5R, 1.0R)
+                Dim found As Boolean = False
+                For i As Integer = pos To candidateTokens.Count - 1
+                    Dim cand = candidateTokens(i)
+                    If String.Equals(cand, t, StringComparison.OrdinalIgnoreCase) Then
+                        info.Score += 2 * weight
+                        info.ExactCount += 1
+                        pos = i + 1
+                        found = True
+                        Exit For
+                    End If
+                    If cand.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0 OrElse t.IndexOf(cand, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                        info.Score += 1 * weight
+                        pos = i + 1
+                        found = True
+                        Exit For
+                    End If
+                Next
+                If Not found Then
+                    info.Score -= 0.1R * weight ' 약한 패널티
+                End If
+            Next
+            Return info
+        End Function
+
+        Private Shared Function TokenizeForSuggest(text As String) As List(Of String)
+            Dim list As New List(Of String)()
+            Dim norm = NormalizeForSuggest(text)
+            If String.IsNullOrWhiteSpace(norm) Then
+                Return list
+            End If
+            For Each part In norm.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
+                Dim trimmed = part.Trim()
+                If Not String.IsNullOrWhiteSpace(trimmed) Then
+                    list.Add(trimmed)
+                End If
+            Next
+            Return list
+        End Function
+
+        Private Shared Function NormalizeForSuggest(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+            Dim upper = text.ToUpperInvariant()
+            Dim cleaned = Regex.Replace(upper, "[^A-Z0-9]+", " ")
+            cleaned = Regex.Replace(cleaned, "\s+", " ").Trim()
+            Return cleaned
         End Function
 
         Public Shared Function ExpandGroupSelections(groups As List(Of MappingGroup), selections As List(Of GroupSelection)) As List(Of MappingSelection)
@@ -767,9 +837,9 @@ Namespace Services
                 row("File") = s.File
                 row("SegmentId") = s.SegmentId
                 row("RevitSegmentKey") = s.SegmentKey
-                row("ND_mm") = s.NdMm.ToString("0.###", CultureInfo.InvariantCulture)
-                row("ID_mm") = s.IdMm.ToString("0.###", CultureInfo.InvariantCulture)
-                row("OD_mm") = s.OdMm.ToString("0.###", CultureInfo.InvariantCulture)
+                row("ND_mm") = s.NdMm
+                row("ID_mm") = s.IdMm
+                row("OD_mm") = s.OdMm
                 res.RevitSizeTable.Rows.Add(row)
             Next
 
@@ -777,9 +847,9 @@ Namespace Services
                 Dim row = res.PmsSizeTable.NewRow()
                 row("CLASS") = p.Class
                 row("PMS_SegmentKey") = p.SegmentKey
-                row("ND_mm") = p.NdMm.ToString("0.###", CultureInfo.InvariantCulture)
-                row("ID_mm") = p.IdMm.ToString("0.###", CultureInfo.InvariantCulture)
-                row("OD_mm") = p.OdMm.ToString("0.###", CultureInfo.InvariantCulture)
+                row("ND_mm") = p.NdMm
+                row("ID_mm") = p.IdMm
+                row("OD_mm") = p.OdMm
                 res.PmsSizeTable.Rows.Add(row)
             Next
 
@@ -1048,6 +1118,7 @@ Namespace Services
             t.Columns.Add("RuleType", GetType(String))
             t.Columns.Add("PartId", GetType(Integer))
             t.Columns.Add("PartName", GetType(String))
+            t.Columns.Add("TypeName", GetType(String))
             Return t
         End Function
 
@@ -1068,9 +1139,9 @@ Namespace Services
             t.Columns.Add("File", GetType(String))
             t.Columns.Add("SegmentId", GetType(Integer))
             t.Columns.Add("RevitSegmentKey", GetType(String))
-            t.Columns.Add("ND_mm", GetType(String))
-            t.Columns.Add("ID_mm", GetType(String))
-            t.Columns.Add("OD_mm", GetType(String))
+            t.Columns.Add("ND_mm", GetType(Double))
+            t.Columns.Add("ID_mm", GetType(Double))
+            t.Columns.Add("OD_mm", GetType(Double))
             Return t
         End Function
 
@@ -1078,9 +1149,9 @@ Namespace Services
             Dim t As New DataTable("SegmentSizeRaw_PMS")
             t.Columns.Add("CLASS", GetType(String))
             t.Columns.Add("PMS_SegmentKey", GetType(String))
-            t.Columns.Add("ND_mm", GetType(String))
-            t.Columns.Add("ID_mm", GetType(String))
-            t.Columns.Add("OD_mm", GetType(String))
+            t.Columns.Add("ND_mm", GetType(Double))
+            t.Columns.Add("ID_mm", GetType(Double))
+            t.Columns.Add("OD_mm", GetType(Double))
             Return t
         End Function
 
@@ -1092,14 +1163,14 @@ Namespace Services
             t.Columns.Add("RevitSegmentKey", GetType(String))
             t.Columns.Add("CLASS", GetType(String))
             t.Columns.Add("PMS_SegmentKey", GetType(String))
-            t.Columns.Add("ND_mm", GetType(String))
-            t.Columns.Add("PMS_ND", GetType(String))
-            t.Columns.Add("Revit_ID", GetType(String))
-            t.Columns.Add("Revit_OD", GetType(String))
-            t.Columns.Add("PMS_ID", GetType(String))
-            t.Columns.Add("PMS_OD", GetType(String))
-            t.Columns.Add("Diff_ID", GetType(String))
-            t.Columns.Add("Diff_OD", GetType(String))
+            t.Columns.Add("ND_mm", GetType(Double))
+            t.Columns.Add("PMS_ND", GetType(Double))
+            t.Columns.Add("Revit_ID", GetType(Double))
+            t.Columns.Add("Revit_OD", GetType(Double))
+            t.Columns.Add("PMS_ID", GetType(Double))
+            t.Columns.Add("PMS_OD", GetType(Double))
+            t.Columns.Add("Diff_ID", GetType(Double))
+            t.Columns.Add("Diff_OD", GetType(Double))
             t.Columns.Add("Status", GetType(String))
             t.Columns.Add("PipeTypeClass", GetType(String))
             t.Columns.Add("SegmentClass", GetType(String))
@@ -1156,22 +1227,14 @@ Namespace Services
             row("RevitSegmentKey") = revSeg
             row("CLASS") = cls
             row("PMS_SegmentKey") = pmsSeg
-            Dim ndText As String = String.Empty
-            If Math.Abs(revNd) > Double.Epsilon Then
-                ndText = revNd.ToString("0.###", CultureInfo.InvariantCulture)
-            End If
-            Dim pmsNdText As String = String.Empty
-            If Math.Abs(pmsNd) > Double.Epsilon Then
-                pmsNdText = pmsNd.ToString("0.###", CultureInfo.InvariantCulture)
-            End If
-            row("ND_mm") = ndText
-            row("PMS_ND") = pmsNdText
-            row("Revit_ID") = revId.ToString("0.###", CultureInfo.InvariantCulture)
-            row("Revit_OD") = revOd.ToString("0.###", CultureInfo.InvariantCulture)
-            row("PMS_ID") = pmsId.ToString("0.###", CultureInfo.InvariantCulture)
-            row("PMS_OD") = pmsOd.ToString("0.###", CultureInfo.InvariantCulture)
-            row("Diff_ID") = (revId - pmsId).ToString("0.###", CultureInfo.InvariantCulture)
-            row("Diff_OD") = (revOd - pmsOd).ToString("0.###", CultureInfo.InvariantCulture)
+            row("ND_mm") = revNd
+            row("PMS_ND") = pmsNd
+            row("Revit_ID") = revId
+            row("Revit_OD") = revOd
+            row("PMS_ID") = pmsId
+            row("PMS_OD") = pmsOd
+            row("Diff_ID") = revId - pmsId
+            row("Diff_OD") = revOd - pmsOd
             row("Status") = status
             row("PipeTypeClass") = pipeTypeClass
             row("SegmentClass") = segmentClass
@@ -1193,7 +1256,7 @@ Namespace Services
             If revSizes IsNot Nothing AndAlso revSizes.Count > 0 Then
                 For Each r In revSizes
                     AddCompareRow(table, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  Math.Round(r.NdMm, ndRound), r.IdMm, r.OdMm, 0, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
+                                  r.NdMm, r.IdMm, r.OdMm, 0, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
                 Next
             Else
                 AddCompareRow(table, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
@@ -1256,17 +1319,21 @@ Namespace Services
             Dim hasPmsId As Boolean = compareTable.Columns.Contains("PMS_ID")
             Dim hasPmsOd As Boolean = compareTable.Columns.Contains("PMS_OD")
             Dim hasStatus As Boolean = compareTable.Columns.Contains("Status")
+            Dim hasRevSeg As Boolean = compareTable.Columns.Contains("RevitSegmentKey")
+            Dim hasPmsSeg As Boolean = compareTable.Columns.Contains("PMS_SegmentKey")
 
             For Each r As DataRow In compareTable.Rows
                 Dim item As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase) From {
                     {"File", SafeFileName(If(hasFile, SafeStr(r("File")), String.Empty))},
                     {"PipeType", If(hasPipeType, SafeStr(r("PipeTypeName")), String.Empty)},
-                    {"ND", NormalizeNumberText(If(hasNd, SafeStr(r("ND_mm")), String.Empty))},
-                    {"ID", NormalizeNumberText(If(hasRevId, SafeStr(r("Revit_ID")), String.Empty))},
-                    {"OD", NormalizeNumberText(If(hasRevOd, SafeStr(r("Revit_OD")), String.Empty))},
-                    {"PMS_ND", NormalizeNumberText(If(hasPmsNd, SafeStr(r("PMS_ND")), String.Empty))},
-                    {"PMS_ID", NormalizeNumberText(If(hasPmsId, SafeStr(r("PMS_ID")), String.Empty))},
-                    {"PMS_OD", NormalizeNumberText(If(hasPmsOd, SafeStr(r("PMS_OD")), String.Empty))},
+                    {"Revit Segment", If(hasRevSeg, SafeStr(r("RevitSegmentKey")), String.Empty)},
+                    {"PMS Segment", If(hasPmsSeg, SafeStr(r("PMS_SegmentKey")), String.Empty)},
+                    {"ND", If(hasNd AndAlso Not r.IsNull("ND_mm"), r("ND_mm"), Nothing)},
+                    {"ID", If(hasRevId AndAlso Not r.IsNull("Revit_ID"), r("Revit_ID"), Nothing)},
+                    {"OD", If(hasRevOd AndAlso Not r.IsNull("Revit_OD"), r("Revit_OD"), Nothing)},
+                    {"PMS_ND", If(hasPmsNd AndAlso Not r.IsNull("PMS_ND"), r("PMS_ND"), Nothing)},
+                    {"PMS_ID", If(hasPmsId AndAlso Not r.IsNull("PMS_ID"), r("PMS_ID"), Nothing)},
+                    {"PMS_OD", If(hasPmsOd AndAlso Not r.IsNull("PMS_OD"), r("PMS_OD"), Nothing)},
                     {"Result", MapSizeStatus(If(hasStatus, SafeStr(r("Status")), String.Empty))}
                 }
                 list.Add(item)
@@ -1288,6 +1355,10 @@ Namespace Services
                 Dim fileName = SafeFileName(SafeStr(r("File")))
                 Dim pipeType = SafeStr(r("PipeTypeName"))
                 Dim partRaw = SafeStr(r("PartName"))
+                Dim typeName As String = String.Empty
+                If routing.Columns.Contains("TypeName") Then
+                    typeName = SafeStr(r("TypeName"))
+                End If
                 Dim partLabel = ExtractRoutingPartLabel(partRaw)
 
                 Dim pipeClass = NormalizeClassToken(ExtractClassToken(pipeType))
@@ -1311,6 +1382,7 @@ Namespace Services
                     {"File", fileName},
                     {"PipeType", pipeType},
                     {"Part", partLabel},
+                    {"Type", typeName},
                     {"Class검토", status}
                 }
                 list.Add(item)
@@ -1349,7 +1421,7 @@ Namespace Services
                 If Math.Abs(val) < Double.Epsilon Then
                     Return String.Empty
                 End If
-                Return val.ToString("0.###", CultureInfo.InvariantCulture)
+                Return val.ToString("0.###############", CultureInfo.InvariantCulture)
             End If
             Return text
         End Function
@@ -1561,6 +1633,7 @@ Namespace Services
                         End If
                         Dim partId = rule.MEPPartId
                         Dim partName = ToSegmentKey(doc, partId)
+                        Dim typeName = ExtractRoutingTypeName(doc, partId)
                         res.Add(New RoutingRow With {
                             .File = filePath,
                             .PipeTypeName = pt.Name,
@@ -1568,7 +1641,8 @@ Namespace Services
                             .RuleIndex = i,
                             .RuleType = rule.GetType().Name,
                             .PartId = partId.IntegerValue,
-                            .PartName = partName
+                            .PartName = partName,
+                            .TypeName = typeName
                         })
                     Next
                 Next
@@ -1585,7 +1659,43 @@ Namespace Services
             Public Property RuleType As String = String.Empty
             Public Property PartId As Integer
             Public Property PartName As String = String.Empty
+            Public Property TypeName As String = String.Empty
         End Class
+
+        Private Shared Function ExtractRoutingTypeName(doc As RvtDB.Document, partId As RvtDB.ElementId) As String
+            If doc Is Nothing Then
+                Return String.Empty
+            End If
+            Try
+                Dim el = doc.GetElement(partId)
+                If el Is Nothing Then
+                    Return String.Empty
+                End If
+                Dim val As String = String.Empty
+                Try
+                    Dim typeParam As RvtDB.Parameter = el.LookupParameter("Type")
+                    If typeParam Is Nothing Then
+                        typeParam = el.Parameter(RvtDB.BuiltInParameter.ALL_MODEL_TYPE_NAME)
+                    End If
+                    If typeParam IsNot Nothing Then
+                        val = typeParam.AsString()
+                    End If
+                Catch
+                End Try
+                If String.IsNullOrWhiteSpace(val) Then
+                    Dim et As ElementType = TryCast(el, ElementType)
+                    If et IsNot Nothing Then
+                        val = et.Name
+                    End If
+                End If
+                If String.IsNullOrWhiteSpace(val) Then
+                    val = el.Name
+                End If
+                Return If(val, String.Empty)
+            Catch
+                Return String.Empty
+            End Try
+        End Function
 
         Private Shared Function ToSegmentKey(doc As RvtDB.Document, segId As RvtDB.ElementId) As String
             If doc Is Nothing Then
@@ -1820,10 +1930,10 @@ Namespace Services
                     Case NpoiCellType.Boolean
                         Return cell.BooleanCellValue.ToString(CultureInfo.InvariantCulture)
                     Case NpoiCellType.Numeric
-                        Return cell.NumericCellValue.ToString("0.###", CultureInfo.InvariantCulture)
+                        Return cell.NumericCellValue.ToString(CultureInfo.InvariantCulture)
                     Case NpoiCellType.Formula
                         If cell.CachedFormulaResultType = NpoiCellType.Numeric Then
-                            Return cell.NumericCellValue.ToString("0.###", CultureInfo.InvariantCulture)
+                            Return cell.NumericCellValue.ToString(CultureInfo.InvariantCulture)
                         End If
                         If cell.CachedFormulaResultType = NpoiCellType.String Then
                             Return cell.StringCellValue
@@ -1932,12 +2042,24 @@ Namespace Services
             For ci As Integer = 0 To t.Columns.Count - 1
                 head.CreateCell(ci).SetCellValue(t.Columns(ci).ColumnName)
             Next
+            Dim numStyle = wb.CreateCellStyle()
+            numStyle.DataFormat = wb.CreateDataFormat().GetFormat("0.###############")
             Dim r As Integer = 1
             For Each row As DataRow In t.Rows
                 Dim rr = sh.CreateRow(r)
                 For ci As Integer = 0 To t.Columns.Count - 1
                     Dim v As Object = row(ci)
-                    rr.CreateCell(ci).SetCellValue(If(v, String.Empty).ToString())
+                    Dim cell = rr.CreateCell(ci)
+                    If v Is Nothing OrElse TypeOf v Is DBNull Then
+                        cell.SetCellValue(String.Empty)
+                    ElseIf TypeOf v Is Double OrElse TypeOf v Is Single OrElse TypeOf v Is Decimal Then
+                        cell.SetCellValue(Convert.ToDouble(v))
+                        cell.CellStyle = numStyle
+                    ElseIf TypeOf v Is Integer OrElse TypeOf v Is Long OrElse TypeOf v Is Short Then
+                        cell.SetCellValue(Convert.ToDouble(v))
+                    Else
+                        cell.SetCellValue(v.ToString())
+                    End If
                 Next
                 r += 1
             Next

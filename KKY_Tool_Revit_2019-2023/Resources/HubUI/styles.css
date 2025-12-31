@@ -111,9 +111,6 @@ body.kky-debug-outline * {
 .log-line strong { color: #7dd3ff; }
 
 /* Segment PMS */
-.segmentpms-page .segmentpms-control { margin-bottom: 12px; }
-.segmentpms-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.segmentpms-row input, .segmentpms-row select { width:120px; }
 .segmentpms-table { width:100%; border-collapse: collapse; margin-top:8px; }
 .segmentpms-table th, .segmentpms-table td { border:1px solid #d9d9d9; padding:6px 8px; font-size:12px; }
 .segmentpms-table th { background:#f5f5f5; text-align:left; }
@@ -127,3 +124,5 @@ body.kky-debug-outline * {
 .segmentpms-extract .card-btn, .segmentpms-check .card-btn { min-width:120px; }
 .segmentpms-table td small.segmentpms-suggest { display:block; margin-top:2px; color:#1f8a36; font-weight:600; }
 .segmentpms-extract table input[type="checkbox"] { width:16px; height:16px; }
+.segmentpms-rvtlist { max-height: 170px; overflow-y: auto; border:1px solid #d9d9d9; border-radius:8px; padding:4px; }
+.segmentpms-rvtlist table { margin-top:0; }
