@@ -244,15 +244,15 @@ Namespace UI.Hub
         End Sub
 
         Private Sub HandleExcelOpen(payload As Object)
-            Dim rawPath As String = TryCast(GetProp(payload, "path"), String)
-            If String.IsNullOrWhiteSpace(rawPath) Then
+            Dim inputPath As String = TryCast(GetProp(payload, "path"), String)
+            If String.IsNullOrWhiteSpace(inputPath) Then
                 SendToWeb("host:warn", New With {.message = "엑셀 경로가 비어 있습니다."})
                 Return
             End If
 
-            Dim fullPath As String = rawPath
+            Dim fullPath As String = inputPath
             Try
-                fullPath = System.IO.Path.GetFullPath(rawPath)
+                fullPath = System.IO.Path.GetFullPath(inputPath)
             Catch
                 ' ignore
             End Try
@@ -294,9 +294,14 @@ Namespace UI.Hub
                 Dim psi As New System.Diagnostics.ProcessStartInfo(fullPath)
                 psi.UseShellExecute = True
 
-                Dim dir As String = System.IO.Path.GetDirectoryName(fullPath)
-                If Not String.IsNullOrWhiteSpace(dir) Then
-                    psi.WorkingDirectory = dir
+                Dim directoryPath As String = String.Empty
+                Try
+                    directoryPath = System.IO.Path.GetDirectoryName(fullPath)
+                Catch
+                    directoryPath = String.Empty
+                End Try
+                If Not String.IsNullOrWhiteSpace(directoryPath) Then
+                    psi.WorkingDirectory = directoryPath
                 End If
 
                 System.Diagnostics.Process.Start(psi)

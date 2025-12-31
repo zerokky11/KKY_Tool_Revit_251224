@@ -10,6 +10,7 @@ Imports System.Windows.Forms
 Imports Autodesk.Revit.UI
 Imports KKY_Tool_Revit.Services
 Imports NPOI.SS.UserModel
+Imports NPOI.SS.Util
 Imports NPOI.XSSF.UserModel
 
 Namespace UI.Hub
@@ -381,6 +382,7 @@ Namespace UI.Hub
                 dlg.Title = "PMS Excel 선택"
                 dlg.RestoreDirectory = True
                 If dlg.ShowDialog() <> DialogResult.OK Then
+                    SendToWeb("segmentpms:error", New With {.message = "PMS 불러오기가 취소되었습니다."})
                     Return
                 End If
 
@@ -468,52 +470,6 @@ Namespace UI.Hub
 
         Private Sub HandleSegmentPmsSaveResult(app As UIApplication, payload As Object)
             Dim pd = ParsePayloadDict(payload)
-            Dim compareRows As List(Of Dictionary(Of String, Object)) = Nothing
-            Dim mapRows As List(Of Dictionary(Of String, Object)) = Nothing
-            Dim revitRows As List(Of Dictionary(Of String, Object)) = Nothing
-            Dim pmsRows As List(Of Dictionary(Of String, Object)) = Nothing
-            Dim errorRows As List(Of Dictionary(Of String, Object)) = Nothing
-            Dim summaryRows As List(Of Dictionary(Of String, Object)) = Nothing
-
-            If _segmentPmsLastResult IsNot Nothing AndAlso _segmentPmsLastResult.RunResult IsNot Nothing Then
-                compareRows = DataTableToObjects(_segmentPmsLastResult.RunResult.CompareTable)
-                mapRows = DataTableToObjects(_segmentPmsLastResult.RunResult.MapTable)
-                revitRows = DataTableToObjects(_segmentPmsLastResult.RunResult.RevitSizeTable)
-                pmsRows = DataTableToObjects(_segmentPmsLastResult.RunResult.PmsSizeTable)
-                errorRows = DataTableToObjects(_segmentPmsLastResult.RunResult.ErrorTable)
-                summaryRows = DataTableToObjects(_segmentPmsLastResult.RunResult.SummaryTable)
-            End If
-
-            If compareRows Is Nothing Then
-                compareRows = CoerceRowsToDictList(GetDictValue(pd, "compare"))
-            End If
-            If mapRows Is Nothing Then
-                mapRows = CoerceRowsToDictList(GetDictValue(pd, "map"))
-            End If
-            If revitRows Is Nothing Then
-                revitRows = CoerceRowsToDictList(GetDictValue(pd, "revitRaw"))
-            End If
-            If pmsRows Is Nothing Then
-                pmsRows = CoerceRowsToDictList(GetDictValue(pd, "pmsRaw"))
-            End If
-            If errorRows Is Nothing Then
-                errorRows = CoerceRowsToDictList(GetDictValue(pd, "errors"))
-            End If
-            If summaryRows Is Nothing Then
-                summaryRows = CoerceRowsToDictList(GetDictValue(pd, "summary"))
-            End If
-
-            Dim hasData As Boolean = (compareRows IsNot Nothing AndAlso compareRows.Count > 0) OrElse
-                                     (mapRows IsNot Nothing AndAlso mapRows.Count > 0) OrElse
-                                     (revitRows IsNot Nothing AndAlso revitRows.Count > 0) OrElse
-                                     (pmsRows IsNot Nothing AndAlso pmsRows.Count > 0) OrElse
-                                     (errorRows IsNot Nothing AndAlso errorRows.Count > 0) OrElse
-                                     (summaryRows IsNot Nothing AndAlso summaryRows.Count > 0)
-            If Not hasData Then
-                SendToWeb("segmentpms:error", New With {.message = "먼저 검토를 실행하세요."})
-                Return
-            End If
-
             Using dlg As New SaveFileDialog()
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
                 dlg.FileName = "SegmentPmsResult.xlsx"
@@ -524,12 +480,28 @@ Namespace UI.Hub
 
                 Try
                     Dim wb As IWorkbook = New XSSFWorkbook()
-                    AddSheet(wb, "Compare", compareRows)
-                    AddSheet(wb, "PipeTypeSegmentMap", mapRows)
-                    AddSheet(wb, "SegmentSizeRaw_Revit", revitRows)
-                    AddSheet(wb, "SegmentSizeRaw_PMS", pmsRows)
-                    AddSheet(wb, "Summary", summaryRows)
-                    AddSheet(wb, "Error", errorRows)
+                    Dim mapTable As DataTable = Nothing
+                    Dim compareTable As DataTable = Nothing
+                    If _segmentPmsLastResult IsNot Nothing AndAlso _segmentPmsLastResult.RunResult IsNot Nothing Then
+                        mapTable = _segmentPmsLastResult.RunResult.MapTable
+                        compareTable = _segmentPmsLastResult.RunResult.CompareTable
+                    End If
+
+                    Dim compareRows = If(compareTable, DictListToDataTable(CoerceRowsToDictList(GetDictValue(pd, "compare")), "SizeCompare"))
+                    Dim mapRows = If(mapTable, DictListToDataTable(CoerceRowsToDictList(GetDictValue(pd, "map")), "PipeTypeSegmentMap"))
+
+                    Dim classRows = SegmentPmsCheckService.BuildClassCheckRows(mapRows)
+                    Dim sizeRows = SegmentPmsCheckService.BuildSizeCheckRows(compareRows)
+                    Dim routingRows = SegmentPmsCheckService.BuildRoutingClassRows(_extractData)
+
+                    If classRows.Count = 0 AndAlso sizeRows.Count = 0 AndAlso routingRows.Count = 0 Then
+                        SendToWeb("segmentpms:error", New With {.message = "먼저 검토를 실행하세요."})
+                        Return
+                    End If
+
+                    AddSheet(wb, "Pipe Segment Class검토", classRows, New List(Of String) From {"File", "PipeType", "Segment", "Class검토결과"})
+                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"File", "PipeType", "ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Result"})
+                    AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Class검토"})
                     Dim savePath As String = dlg.FileName
                     Try
                         savePath = Path.GetFullPath(dlg.FileName)
@@ -680,29 +652,26 @@ Namespace UI.Hub
             Return res
         End Function
 
-        Private Shared Sub AddSheet(wb As IWorkbook, name As String, rows As List(Of Dictionary(Of String, Object)))
+        Private Shared Sub AddSheet(wb As IWorkbook, name As String, rows As List(Of Dictionary(Of String, Object)), columns As IList(Of String))
             Dim sh = wb.CreateSheet(name)
-            If rows Is Nothing Then
-                Return
-            End If
-            If rows.Count = 0 Then
+            If columns Is Nothing OrElse columns.Count = 0 Then
                 Return
             End If
 
             Dim headRow = sh.CreateRow(0)
-            Dim cols = New List(Of String)(rows(0).Keys)
-            For ci As Integer = 0 To cols.Count - 1
-                headRow.CreateCell(ci).SetCellValue(cols(ci))
+            For ci As Integer = 0 To columns.Count - 1
+                headRow.CreateCell(ci).SetCellValue(columns(ci))
             Next
 
+            Dim dataRows = If(rows, New List(Of Dictionary(Of String, Object))())
             Dim rIndex As Integer = 1
-            For Each item In rows
+            For Each item In dataRows
                 Dim row = sh.CreateRow(rIndex)
-                For ci As Integer = 0 To cols.Count - 1
-                    Dim key = cols(ci)
+                For ci As Integer = 0 To columns.Count - 1
+                    Dim key = columns(ci)
                     Dim v As Object = Nothing
-                    If Not item.TryGetValue(key, v) Then
-                        v = Nothing
+                    If item IsNot Nothing Then
+                        item.TryGetValue(key, v)
                     End If
                     Dim cellText As String = String.Empty
                     If v IsNot Nothing AndAlso Not TypeOf v Is DBNull Then
@@ -712,7 +681,51 @@ Namespace UI.Hub
                 Next
                 rIndex += 1
             Next
+
+            sh.CreateFreezePane(0, 1)
+            Dim lastRow As Integer = Math.Max(dataRows.Count, 0)
+            sh.SetAutoFilter(New CellRangeAddress(0, lastRow, 0, columns.Count - 1))
+            For ci As Integer = 0 To columns.Count - 1
+                sh.AutoSizeColumn(ci)
+            Next
         End Sub
+
+        Private Shared Function DictListToDataTable(rows As List(Of Dictionary(Of String, Object)), tableName As String) As DataTable
+            Dim t As New DataTable(tableName)
+            If rows Is Nothing OrElse rows.Count = 0 Then
+                Return t
+            End If
+
+            Dim cols As New List(Of String)()
+            Dim colSet As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each src In rows
+                If src Is Nothing Then
+                    Continue For
+                End If
+                For Each k In src.Keys
+                    If colSet.Add(k) Then
+                        cols.Add(k)
+                    End If
+                Next
+            Next
+
+            For Each c In cols
+                t.Columns.Add(c, GetType(Object))
+            Next
+
+            For Each src In rows
+                Dim r = t.NewRow()
+                For Each c In cols
+                    Dim v As Object = Nothing
+                    If src IsNot Nothing Then
+                        src.TryGetValue(c, v)
+                    End If
+                    r(c) = If(v, Nothing)
+                Next
+                t.Rows.Add(r)
+            Next
+            Return t
+        End Function
 
         Private Shared Function NormalizePath(p As String) As String
             If String.IsNullOrWhiteSpace(p) Then
