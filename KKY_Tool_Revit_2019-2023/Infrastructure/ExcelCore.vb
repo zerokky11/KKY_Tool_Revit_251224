@@ -217,10 +217,6 @@ Namespace Infrastructure
         End Sub
 
         Private Sub AutoSizeAll(sh As ISheet, colCount As Integer)
-            Dim xssf = TryCast(sh, XSSFSheet)
-            If xssf IsNot Nothing Then
-                xssf.TrackAllColumnsForAutoSizing()
-            End If
             For ci = 0 To colCount - 1
                 sh.AutoSizeColumn(ci, False)
                 Dim cur = sh.GetColumnWidth(ci)
@@ -247,7 +243,7 @@ Namespace Infrastructure
                                            Optional freezeTopRow As Boolean = True,
                                            Optional borderAll As Boolean = True,
                                            Optional autoFit As Boolean = True,
-                                           Optional headerFillColor As Short = IndexedColors.Grey25Percent.Index)
+                                           Optional headerFillColor As Short = -1S)
             If wb Is Nothing OrElse sheet Is Nothing Then
                 Return
             End If
@@ -269,8 +265,12 @@ Namespace Infrastructure
             Dim headStyle = wb.CreateCellStyle()
             headStyle.SetFont(headFont)
             headStyle.FillPattern = FillPattern.SolidForeground
-            headStyle.FillForegroundColor = headerFillColor
-            headStyle.Alignment = HorizontalAlignment.Left
+            Dim resolvedHeaderFill As Short = headerFillColor
+            If resolvedHeaderFill < 0 Then
+                resolvedHeaderFill = IndexedColors.Grey25Percent.Index
+            End If
+            headStyle.FillForegroundColor = resolvedHeaderFill
+            headStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left
             SetThinBorders(headStyle)
 
             For ci As Integer = 0 To lastCol
@@ -327,10 +327,6 @@ Namespace Infrastructure
             End If
 
             If autoFit Then
-                Dim xssf = TryCast(sheet, XSSFSheet)
-                If xssf IsNot Nothing Then
-                    xssf.TrackAllColumnsForAutoSizing()
-                End If
                 For ci As Integer = 0 To lastCol
                     sheet.AutoSizeColumn(ci, False)
                     Dim cur = sheet.GetColumnWidth(ci)
