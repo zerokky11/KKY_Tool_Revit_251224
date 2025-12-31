@@ -252,13 +252,12 @@ export function renderSegmentPms() {
     resBody.innerHTML = '';
     const rows = payload?.compare || [];
     const total = payload?.totalCount || rows.length;
-    const show = rows.slice(0, MAX_UI_ROWS);
+    const show = (rows || []).slice(0, MAX_UI_ROWS);
+    const displayCount = Math.min(total, MAX_UI_ROWS);
     if (total === 0) {
       resInfo.textContent = '결과 없음';
-    } else if (total <= MAX_UI_ROWS) {
-      resInfo.textContent = `총 ${total}건`;
     } else {
-      resInfo.textContent = `총 ${total}건 (화면에는 ${MAX_UI_ROWS}건만 표시, 전체는 엑셀 저장에서 확인)`;
+      resInfo.textContent = `총 ${total}건 / 화면표시 ${displayCount}건 / 전체는 엑셀 저장에서 확인`;
     }
     show.forEach(r => {
       const tr = document.createElement('tr');

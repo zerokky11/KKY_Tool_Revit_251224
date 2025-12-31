@@ -6,12 +6,14 @@ Imports System.Collections.Generic
 Imports System.Data
 Imports System.Globalization
 Imports System.IO
+Imports System.Linq
 Imports System.Text
 Imports System.Text.RegularExpressions
 Imports Autodesk.Revit.DB
 Imports Autodesk.Revit.DB.Plumbing
 Imports Autodesk.Revit.UI
 Imports NPOI.SS.UserModel
+Imports NPOI.SS.Util
 Imports NPOI.XSSF.UserModel
 Imports RvtDB = Autodesk.Revit.DB
 Imports NpoiCellType = NPOI.SS.UserModel.CellType
@@ -690,7 +692,7 @@ Namespace Services
 
                 If revSizes Is Nothing OrElse revSizes.Count = 0 Then
                     AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  0, 0, 0, 0, 0, "MissingRevitRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
+                                  0, 0, 0, 0, 0, 0, "MissingRevitRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                     Continue For
                 End If
 
@@ -722,7 +724,7 @@ Namespace Services
 
                 If ndKeys.Count = 0 Then
                     AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  0, 0, 0, 0, 0, If(pmsSizes Is Nothing OrElse pmsSizes.Count = 0, "MissingPmsRow", "MissingRevitRow"), pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
+                                  0, 0, 0, 0, 0, 0, If(pmsSizes Is Nothing OrElse pmsSizes.Count = 0, "MissingPmsRow", "MissingRevitRow"), pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                     Continue For
                 End If
 
@@ -734,13 +736,13 @@ Namespace Services
 
                     If r Is Nothing AndAlso p IsNot Nothing Then
                         AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                      p.NdMm, 0, 0, p.IdMm, p.OdMm, "MissingRevitRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
+                                      0, 0, 0, p.NdMm, p.IdMm, p.OdMm, "MissingRevitRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                         Continue For
                     End If
 
                     If r IsNot Nothing AndAlso p Is Nothing Then
                         AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                      r.NdMm, r.IdMm, r.OdMm, 0, 0, "MissingPmsRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
+                                      r.NdMm, r.IdMm, r.OdMm, 0, 0, 0, "MissingPmsRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                         Continue For
                     End If
 
@@ -756,7 +758,7 @@ Namespace Services
                     End If
 
                     AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  r.NdMm, r.IdMm, r.OdMm, p.IdMm, p.OdMm, status, pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
+                                  r.NdMm, r.IdMm, r.OdMm, p.NdMm, p.IdMm, p.OdMm, status, pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                 Next
             Next
 
@@ -1091,6 +1093,7 @@ Namespace Services
             t.Columns.Add("CLASS", GetType(String))
             t.Columns.Add("PMS_SegmentKey", GetType(String))
             t.Columns.Add("ND_mm", GetType(String))
+            t.Columns.Add("PMS_ND", GetType(String))
             t.Columns.Add("Revit_ID", GetType(String))
             t.Columns.Add("Revit_OD", GetType(String))
             t.Columns.Add("PMS_ID", GetType(String))
@@ -1134,9 +1137,10 @@ Namespace Services
                                          revSeg As String,
                                          cls As String,
                                          pmsSeg As String,
-                                         nd As Double,
+                                         revNd As Double,
                                          revId As Double,
                                          revOd As Double,
+                                         pmsNd As Double,
                                          pmsId As Double,
                                          pmsOd As Double,
                                          status As String,
@@ -1152,7 +1156,16 @@ Namespace Services
             row("RevitSegmentKey") = revSeg
             row("CLASS") = cls
             row("PMS_SegmentKey") = pmsSeg
-            row("ND_mm") = nd.ToString("0.###", CultureInfo.InvariantCulture)
+            Dim ndText As String = String.Empty
+            If Math.Abs(revNd) > Double.Epsilon Then
+                ndText = revNd.ToString("0.###", CultureInfo.InvariantCulture)
+            End If
+            Dim pmsNdText As String = String.Empty
+            If Math.Abs(pmsNd) > Double.Epsilon Then
+                pmsNdText = pmsNd.ToString("0.###", CultureInfo.InvariantCulture)
+            End If
+            row("ND_mm") = ndText
+            row("PMS_ND") = pmsNdText
             row("Revit_ID") = revId.ToString("0.###", CultureInfo.InvariantCulture)
             row("Revit_OD") = revOd.ToString("0.###", CultureInfo.InvariantCulture)
             row("PMS_ID") = pmsId.ToString("0.###", CultureInfo.InvariantCulture)
@@ -1180,13 +1193,209 @@ Namespace Services
             If revSizes IsNot Nothing AndAlso revSizes.Count > 0 Then
                 For Each r In revSizes
                     AddCompareRow(table, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  Math.Round(r.NdMm, ndRound), r.IdMm, r.OdMm, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
+                                  Math.Round(r.NdMm, ndRound), r.IdMm, r.OdMm, 0, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
                 Next
             Else
                 AddCompareRow(table, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                              0, 0, 0, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
+                              0, 0, 0, 0, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
             End If
         End Sub
+
+        Public Shared Function BuildClassCheckRows(mapTable As DataTable) As List(Of Dictionary(Of String, Object))
+            Dim list As New List(Of Dictionary(Of String, Object))()
+            If mapTable Is Nothing Then
+                Return list
+            End If
+
+            Dim hasFile As Boolean = mapTable.Columns.Contains("File")
+            Dim hasPipeType As Boolean = mapTable.Columns.Contains("PipeTypeName")
+            Dim hasSegment As Boolean = mapTable.Columns.Contains("RevitSegmentKey")
+
+            For Each r As DataRow In mapTable.Rows
+                Dim fileName = SafeFileName(If(hasFile, SafeStr(r("File")), String.Empty))
+                Dim pipeType = If(hasPipeType, SafeStr(r("PipeTypeName")), String.Empty)
+                Dim segment = If(hasSegment, SafeStr(r("RevitSegmentKey")), String.Empty)
+                Dim pipeCls = NormalizeClassToken(ExtractClassToken(pipeType))
+                Dim segCls = NormalizeClassToken(ExtractClassToken(segment))
+
+                Dim result As String
+                If String.IsNullOrWhiteSpace(pipeCls) OrElse String.IsNullOrWhiteSpace(segCls) Then
+                    result = "N/A"
+                ElseIf pipeCls.Equals(segCls, StringComparison.OrdinalIgnoreCase) Then
+                    result = "OK"
+                Else
+                    result = "Mismatch"
+                End If
+
+                Dim item As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase) From {
+                    {"File", fileName},
+                    {"PipeType", pipeType},
+                    {"Segment", segment},
+                    {"Class검토결과", result}
+                }
+                list.Add(item)
+            Next
+
+            Return list.OrderBy(Function(x) SafeStr(x("File"))).
+                        ThenBy(Function(x) SafeStr(x("PipeType"))).
+                        ThenBy(Function(x) SafeStr(x("Segment"))).ToList()
+        End Function
+
+        Public Shared Function BuildSizeCheckRows(compareTable As DataTable) As List(Of Dictionary(Of String, Object))
+            Dim list As New List(Of Dictionary(Of String, Object))()
+            If compareTable Is Nothing Then
+                Return list
+            End If
+
+            Dim hasFile As Boolean = compareTable.Columns.Contains("File")
+            Dim hasPipeType As Boolean = compareTable.Columns.Contains("PipeTypeName")
+            Dim hasNd As Boolean = compareTable.Columns.Contains("ND_mm")
+            Dim hasRevId As Boolean = compareTable.Columns.Contains("Revit_ID")
+            Dim hasRevOd As Boolean = compareTable.Columns.Contains("Revit_OD")
+            Dim hasPmsNd As Boolean = compareTable.Columns.Contains("PMS_ND")
+            Dim hasPmsId As Boolean = compareTable.Columns.Contains("PMS_ID")
+            Dim hasPmsOd As Boolean = compareTable.Columns.Contains("PMS_OD")
+            Dim hasStatus As Boolean = compareTable.Columns.Contains("Status")
+
+            For Each r As DataRow In compareTable.Rows
+                Dim item As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase) From {
+                    {"File", SafeFileName(If(hasFile, SafeStr(r("File")), String.Empty))},
+                    {"PipeType", If(hasPipeType, SafeStr(r("PipeTypeName")), String.Empty)},
+                    {"ND", NormalizeNumberText(If(hasNd, SafeStr(r("ND_mm")), String.Empty))},
+                    {"ID", NormalizeNumberText(If(hasRevId, SafeStr(r("Revit_ID")), String.Empty))},
+                    {"OD", NormalizeNumberText(If(hasRevOd, SafeStr(r("Revit_OD")), String.Empty))},
+                    {"PMS_ND", NormalizeNumberText(If(hasPmsNd, SafeStr(r("PMS_ND")), String.Empty))},
+                    {"PMS_ID", NormalizeNumberText(If(hasPmsId, SafeStr(r("PMS_ID")), String.Empty))},
+                    {"PMS_OD", NormalizeNumberText(If(hasPmsOd, SafeStr(r("PMS_OD")), String.Empty))},
+                    {"Result", MapSizeStatus(If(hasStatus, SafeStr(r("Status")), String.Empty))}
+                }
+                list.Add(item)
+            Next
+
+            Return list.OrderBy(Function(x) SafeStr(x("File"))).
+                        ThenBy(Function(x) SafeStr(x("PipeType"))).
+                        ThenBy(Function(x) SafeStr(x("ND"))).ToList()
+        End Function
+
+        Public Shared Function BuildRoutingClassRows(extractData As DataSet) As List(Of Dictionary(Of String, Object))
+            Dim list As New List(Of Dictionary(Of String, Object))()
+            If extractData Is Nothing OrElse Not extractData.Tables.Contains(TableRouting) Then
+                Return list
+            End If
+
+            Dim routing = extractData.Tables(TableRouting)
+            For Each r As DataRow In routing.Rows
+                Dim fileName = SafeFileName(SafeStr(r("File")))
+                Dim pipeType = SafeStr(r("PipeTypeName"))
+                Dim partRaw = SafeStr(r("PartName"))
+                Dim partLabel = ExtractRoutingPartLabel(partRaw)
+
+                Dim pipeClass = NormalizeClassToken(ExtractClassToken(pipeType))
+                Dim partClasses = ExtractRoutingClasses(partRaw)
+
+                Dim status As String
+                If String.IsNullOrWhiteSpace(pipeClass) OrElse partClasses.Count = 0 Then
+                    status = "N/A"
+                Else
+                    Dim matched As Boolean = False
+                    For Each cls In partClasses
+                        If cls.Equals(pipeClass, StringComparison.OrdinalIgnoreCase) Then
+                            matched = True
+                            Exit For
+                        End If
+                    Next
+                    status = If(matched, "OK", "Mismatch")
+                End If
+
+                Dim item As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase) From {
+                    {"File", fileName},
+                    {"PipeType", pipeType},
+                    {"Part", partLabel},
+                    {"Class검토", status}
+                }
+                list.Add(item)
+            Next
+
+            Return list.OrderBy(Function(x) SafeStr(x("File"))).
+                        ThenBy(Function(x) SafeStr(x("PipeType"))).
+                        ThenBy(Function(x) SafeStr(x("Part"))).ToList()
+        End Function
+
+        Private Shared Function MapSizeStatus(status As String) As String
+            Select Case status
+                Case "OK"
+                    Return "OK"
+                Case "MismatchID"
+                    Return "MismatchID"
+                Case "MismatchOD"
+                    Return "MismatchOD"
+                Case "Mismatch"
+                    Return "Mismatch"
+                Case "MissingPmsRow", "MissingMapping"
+                    Return "MissingPMS"
+                Case "MissingRevitRow"
+                    Return "MissingRevit"
+                Case Else
+                    Return "N/A"
+            End Select
+        End Function
+
+        Private Shared Function NormalizeNumberText(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+            Dim val As Double
+            If Double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, val) Then
+                If Math.Abs(val) < Double.Epsilon Then
+                    Return String.Empty
+                End If
+                Return val.ToString("0.###", CultureInfo.InvariantCulture)
+            End If
+            Return text
+        End Function
+
+        Private Shared Function ExtractRoutingPartLabel(partName As String) As String
+            If String.IsNullOrWhiteSpace(partName) Then
+                Return String.Empty
+            End If
+            Dim first = partName.Split(New String() {"|"}, StringSplitOptions.None)(0).Trim()
+            Dim idx = first.IndexOf(","c)
+            If idx >= 0 Then
+                Return first.Substring(0, idx).Trim()
+            End If
+            Return first
+        End Function
+
+        Private Shared Function ExtractRoutingClasses(partName As String) As List(Of String)
+            Dim list As New List(Of String)()
+            If String.IsNullOrWhiteSpace(partName) Then
+                Return list
+            End If
+            Dim segments = partName.Split(New String() {"|"}, StringSplitOptions.None)
+            Dim added As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each seg In segments
+                Dim cls = NormalizeClassToken(ExtractClassToken(seg))
+                If String.IsNullOrWhiteSpace(cls) Then
+                    Continue For
+                End If
+                If Not added.Contains(cls) Then
+                    added.Add(cls)
+                    list.Add(cls)
+                End If
+            Next
+            Return list
+        End Function
+
+        Private Shared Function SafeFileName(path As String) As String
+            If String.IsNullOrWhiteSpace(path) Then
+                Return String.Empty
+            End If
+            Try
+                Return System.IO.Path.GetFileName(path)
+            Catch
+                Return path
+            End Try
+        End Function
 
         Private Shared Function DetectHeader(sh As ISheet) As Dictionary(Of String, Integer)
             Dim map As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
