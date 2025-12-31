@@ -1391,7 +1391,7 @@ Namespace Services
                 Return String.Empty
             End If
             Try
-                Return Path.GetFileName(path)
+                Return System.IO.Path.GetFileName(path)
             Catch
                 Return path
             End Try
