@@ -389,27 +389,7 @@ Namespace Services
                 Dim ruleIdx = SafeIntObj(r("RuleIndex"))
                 Dim segId = SafeIntObj(r("SegmentId"))
                 Dim segKey = SafeStr(r("SegmentKey"))
-                Dim normSeg = NormalizeKey(segKey)
-
-                Dim bestScore As Double = -1
-                Dim bestClass As String = String.Empty
-                Dim bestSeg As String = String.Empty
-
-                For Each p In pmsData
-                    Dim normP = NormalizeKey(p.SegmentKey)
-                    Dim sim = SimilarityScore(normSeg, normP)
-                    If sim > bestScore Then
-                        bestScore = sim
-                        bestClass = p.Class
-                        bestSeg = p.SegmentKey
-                    End If
-                Next
-
-                If bestScore < 0.4R Then
-                    bestScore = -1
-                    bestClass = String.Empty
-                    bestSeg = String.Empty
-                End If
+                Dim best = FindBestSuggestion(segKey, pmsData)
 
                 result.Add(New SuggestedMapping With {
                     .File = filePath,
@@ -417,9 +397,9 @@ Namespace Services
                     .RuleIndex = ruleIdx,
                     .SegmentId = segId,
                     .SegmentKey = segKey,
-                    .PmsClass = bestClass,
-                    .PmsSegmentKey = bestSeg,
-                    .Score = bestScore
+                    .PmsClass = best.BestClass,
+                    .PmsSegmentKey = best.BestSegment,
+                    .Score = best.Score
                 })
             Next
 
@@ -503,34 +483,123 @@ Namespace Services
                 Return result
             End If
             For Each g In groups
-                Dim bestScore As Double = -1
-                Dim bestClass As String = String.Empty
-                Dim bestSeg As String = String.Empty
-                For Each p In pmsData
-                    Dim normP = NormalizeKey(p.SegmentKey)
-                    Dim sim = SimilarityScore(g.NormalizedKey, normP)
-                    If sim > bestScore Then
-                        bestScore = sim
-                        bestClass = p.Class
-                        bestSeg = p.SegmentKey
-                    End If
-                Next
-                If bestScore >= 0.4R Then
-                    g.SuggestedClass = bestClass
-                    g.SuggestedSegmentKey = bestSeg
+                Dim best = FindBestSuggestion(g.DisplayKey, pmsData)
+                If best.Score > 0 Then
+                    g.SuggestedClass = best.BestClass
+                    g.SuggestedSegmentKey = best.BestSegment
                     result.Add(New SuggestedMapping With {
                         .File = g.GroupKey,
                         .PipeTypeName = g.DisplayKey,
                         .RuleIndex = 0,
                         .SegmentId = 0,
                         .SegmentKey = g.GroupKey,
-                        .PmsClass = bestClass,
-                        .PmsSegmentKey = bestSeg,
-                        .Score = bestScore
+                        .PmsClass = best.BestClass,
+                        .PmsSegmentKey = best.BestSegment,
+                        .Score = best.Score
                     })
                 End If
             Next
             Return result
+        End Function
+
+        Private Class SuggestionResult
+            Public Property BestClass As String = String.Empty
+            Public Property BestSegment As String = String.Empty
+            Public Property Score As Double
+        End Class
+
+        Private Shared Function FindBestSuggestion(segmentKey As String, pmsData As List(Of PmsRow)) As SuggestionResult
+            Dim res As New SuggestionResult()
+            If String.IsNullOrWhiteSpace(segmentKey) OrElse pmsData Is Nothing Then
+                Return res
+            End If
+            Dim segTokens = TokenizeForSuggest(segmentKey)
+            If segTokens.Count = 0 Then
+                Return res
+            End If
+            Dim bestScore As Double = -1
+            Dim bestExact As Integer = -1
+            Dim bestLenDiff As Integer = Integer.MaxValue
+            For Each p In pmsData
+                Dim pTokens = TokenizeForSuggest(p.SegmentKey)
+                If pTokens.Count = 0 Then
+                    Continue For
+                End If
+                Dim info = ComputeSuggestionScore(segTokens, pTokens)
+                If info.Score > bestScore OrElse (info.Score = bestScore AndAlso info.ExactCount > bestExact) OrElse (info.Score = bestScore AndAlso info.ExactCount = bestExact AndAlso info.LenDiff < bestLenDiff) Then
+                    bestScore = info.Score
+                    bestExact = info.ExactCount
+                    bestLenDiff = info.LenDiff
+                    res.BestClass = p.Class
+                    res.BestSegment = p.SegmentKey
+                    res.Score = info.Score
+                End If
+            Next
+            If res.Score <= 0 Then
+                res.BestClass = String.Empty
+                res.BestSegment = String.Empty
+            End If
+            Return res
+        End Function
+
+        Private Class ScoreInfo
+            Public Property Score As Double
+            Public Property ExactCount As Integer
+            Public Property LenDiff As Integer
+        End Class
+
+        Private Shared Function ComputeSuggestionScore(targetTokens As List(Of String), candidateTokens As List(Of String)) As ScoreInfo
+            Dim info As New ScoreInfo With {.Score = 0, .ExactCount = 0, .LenDiff = Math.Abs(targetTokens.Count - candidateTokens.Count)}
+            Dim pos As Integer = 0
+            For Each t In targetTokens
+                Dim weight As Double = If(t.Length <= 2, 0.5R, 1.0R)
+                Dim found As Boolean = False
+                For i As Integer = pos To candidateTokens.Count - 1
+                    Dim cand = candidateTokens(i)
+                    If String.Equals(cand, t, StringComparison.OrdinalIgnoreCase) Then
+                        info.Score += 2 * weight
+                        info.ExactCount += 1
+                        pos = i + 1
+                        found = True
+                        Exit For
+                    End If
+                    If cand.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0 OrElse t.IndexOf(cand, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                        info.Score += 1 * weight
+                        pos = i + 1
+                        found = True
+                        Exit For
+                    End If
+                Next
+                If Not found Then
+                    info.Score -= 0.1R * weight ' 약한 패널티
+                End If
+            Next
+            Return info
+        End Function
+
+        Private Shared Function TokenizeForSuggest(text As String) As List(Of String)
+            Dim list As New List(Of String)()
+            Dim norm = NormalizeForSuggest(text)
+            If String.IsNullOrWhiteSpace(norm) Then
+                Return list
+            End If
+            For Each part In norm.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
+                Dim trimmed = part.Trim()
+                If Not String.IsNullOrWhiteSpace(trimmed) Then
+                    list.Add(trimmed)
+                End If
+            Next
+            Return list
+        End Function
+
+        Private Shared Function NormalizeForSuggest(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+            Dim upper = text.ToUpperInvariant()
+            Dim cleaned = Regex.Replace(upper, "[^A-Z0-9]+", " ")
+            cleaned = Regex.Replace(cleaned, "\s+", " ").Trim()
+            Return cleaned
         End Function
 
         Public Shared Function ExpandGroupSelections(groups As List(Of MappingGroup), selections As List(Of GroupSelection)) As List(Of MappingSelection)
@@ -1250,11 +1319,15 @@ Namespace Services
             Dim hasPmsId As Boolean = compareTable.Columns.Contains("PMS_ID")
             Dim hasPmsOd As Boolean = compareTable.Columns.Contains("PMS_OD")
             Dim hasStatus As Boolean = compareTable.Columns.Contains("Status")
+            Dim hasRevSeg As Boolean = compareTable.Columns.Contains("RevitSegmentKey")
+            Dim hasPmsSeg As Boolean = compareTable.Columns.Contains("PMS_SegmentKey")
 
             For Each r As DataRow In compareTable.Rows
                 Dim item As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase) From {
                     {"File", SafeFileName(If(hasFile, SafeStr(r("File")), String.Empty))},
                     {"PipeType", If(hasPipeType, SafeStr(r("PipeTypeName")), String.Empty)},
+                    {"Revit Segment", If(hasRevSeg, SafeStr(r("RevitSegmentKey")), String.Empty)},
+                    {"PMS Segment", If(hasPmsSeg, SafeStr(r("PMS_SegmentKey")), String.Empty)},
                     {"ND", If(hasNd AndAlso Not r.IsNull("ND_mm"), r("ND_mm"), Nothing)},
                     {"ID", If(hasRevId AndAlso Not r.IsNull("Revit_ID"), r("Revit_ID"), Nothing)},
                     {"OD", If(hasRevOd AndAlso Not r.IsNull("Revit_OD"), r("Revit_OD"), Nothing)},

@@ -9,6 +9,7 @@ Imports System.Text
 Imports System.Windows.Forms
 Imports Autodesk.Revit.UI
 Imports KKY_Tool_Revit.Services
+Imports KKY_Tool_Revit.Infrastructure
 Imports NPOI.SS.UserModel
 Imports NPOI.SS.Util
 Imports NPOI.XSSF.UserModel
@@ -500,7 +501,7 @@ Namespace UI.Hub
                     End If
 
                     AddSheet(wb, "Pipe Segment Class검토", classRows, New List(Of String) From {"File", "PipeType", "Segment", "Class검토결과"})
-                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"File", "PipeType", "ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Result"})
+                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"File", "PipeType", "Revit Segment", "PMS Segment", "ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Result"})
                     AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Type", "Class검토"})
                     Dim savePath As String = dlg.FileName
                     Try
@@ -690,12 +691,9 @@ Namespace UI.Hub
                 rIndex += 1
             Next
 
-            sh.CreateFreezePane(0, 1)
-            Dim lastRow As Integer = Math.Max(dataRows.Count, 0)
-            sh.SetAutoFilter(New CellRangeAddress(0, lastRow, 0, columns.Count - 1))
-            For ci As Integer = 0 To columns.Count - 1
-                sh.AutoSizeColumn(ci)
-            Next
+            ExcelCore.ApplyStandardSheetStyle(wb, sh, headerRowIndex:=0, autoFilter:=True, freezeTopRow:=True, borderAll:=True, autoFit:=True)
+            ExcelCore.ApplyNumberFormatByHeader(wb, sh, 0, New String() {"ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Diff_ID", "Diff_OD", "ND_mm", "ID_mm", "OD_mm", "PMS_ND", "PMS_ID", "PMS_OD"}, "0.###")
+            ExcelCore.ApplyResultFillByHeader(wb, sh, 0)
         End Sub
 
         Private Shared Function DictListToDataTable(rows As List(Of Dictionary(Of String, Object)), tableName As String) As DataTable

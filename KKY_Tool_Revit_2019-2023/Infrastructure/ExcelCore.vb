@@ -1,9 +1,11 @@
-﻿Imports System.Data
+﻿Imports System.Collections.Generic
+Imports System.Data
 Imports System.IO
 Imports System.Windows.Forms
 Imports NPOI.SS.UserModel
 Imports NPOI.SS.Util
 Imports NPOI.XSSF.UserModel
+Imports NPOI.HSSF.Util
 
 Namespace Infrastructure
 
@@ -185,6 +187,231 @@ Namespace Infrastructure
             If s.Length > 31 Then s = s.Substring(0, 31)
             If String.IsNullOrWhiteSpace(s) Then s = "Sheet1"
             Return s
+        End Function
+
+        ' ----------------------------
+        ' 공통 시트 스타일 적용 유틸
+        ' ----------------------------
+        Public Sub ApplyStandardSheetStyle(wb As IWorkbook,
+                                           sheet As ISheet,
+                                           Optional headerRowIndex As Integer = 0,
+                                           Optional autoFilter As Boolean = True,
+                                           Optional freezeTopRow As Boolean = True,
+                                           Optional borderAll As Boolean = True,
+                                           Optional autoFit As Boolean = True,
+                                           Optional headerFillColor As Short = IndexedColors.Grey25Percent.Index)
+            If wb Is Nothing OrElse sheet Is Nothing Then
+                Return
+            End If
+
+            Dim headerRow = sheet.GetRow(headerRowIndex)
+            If headerRow Is Nothing Then
+                Return
+            End If
+
+            Dim lastRow As Integer = sheet.LastRowNum
+            Dim lastCol As Integer = headerRow.LastCellNum - 1
+            If lastCol < 0 Then
+                Return
+            End If
+
+            ' 헤더 스타일
+            Dim headFont = wb.CreateFont()
+            headFont.IsBold = True
+            Dim headStyle = wb.CreateCellStyle()
+            headStyle.SetFont(headFont)
+            headStyle.FillPattern = FillPattern.SolidForeground
+            headStyle.FillForegroundColor = headerFillColor
+            headStyle.Alignment = HorizontalAlignment.Left
+            SetThinBorders(headStyle)
+
+            For ci As Integer = 0 To lastCol
+                Dim c = headerRow.GetCell(ci)
+                If c Is Nothing Then
+                    c = headerRow.CreateCell(ci)
+                End If
+                c.CellStyle = headStyle
+            Next
+
+            If autoFilter Then
+                Dim range As New CellRangeAddress(headerRowIndex, headerRowIndex, 0, lastCol)
+                sheet.SetAutoFilter(range)
+            End If
+
+            If freezeTopRow Then
+                sheet.CreateFreezePane(0, headerRowIndex + 1)
+            End If
+
+            If borderAll Then
+                Dim styleCache As New Dictionary(Of Short, ICellStyle)()
+                For r As Integer = headerRowIndex + 1 To lastRow
+                    Dim row = sheet.GetRow(r)
+                    If row Is Nothing Then
+                        Continue For
+                    End If
+                    For ci As Integer = 0 To lastCol
+                        Dim cell = row.GetCell(ci)
+                        If cell Is Nothing Then
+                            Continue For
+                        End If
+                        Dim srcStyle As ICellStyle = cell.CellStyle
+                        Dim key As Short = If(srcStyle Is Nothing, -1S, srcStyle.Index)
+                        Dim styled As ICellStyle = Nothing
+                        If key >= 0 AndAlso styleCache.TryGetValue(key, styled) Then
+                            cell.CellStyle = styled
+                        Else
+                            Dim newStyle = wb.CreateCellStyle()
+                            If srcStyle IsNot Nothing Then
+                                newStyle.CloneStyleFrom(srcStyle)
+                            End If
+                            SetThinBorders(newStyle)
+                            If key >= 0 Then
+                                styleCache(key) = newStyle
+                            End If
+                            cell.CellStyle = newStyle
+                        End If
+                    Next
+                Next
+            End If
+
+            If autoFit Then
+                For ci As Integer = 0 To lastCol
+                    sheet.AutoSizeColumn(ci, True)
+                    Dim cur = sheet.GetColumnWidth(ci)
+                    Dim padded = Math.Min(cur + 512, 255 * 256)
+                    sheet.SetColumnWidth(ci, padded)
+                Next
+            End If
+        End Sub
+
+        Public Sub ApplyNumberFormatByHeader(wb As IWorkbook,
+                                             sheet As ISheet,
+                                             headerRowIndex As Integer,
+                                             headers As IEnumerable(Of String),
+                                             format As String)
+            If wb Is Nothing OrElse sheet Is Nothing OrElse headers Is Nothing OrElse String.IsNullOrWhiteSpace(format) Then
+                Return
+            End If
+            Dim headerRow = sheet.GetRow(headerRowIndex)
+            If headerRow Is Nothing Then
+                Return
+            End If
+            Dim targetSet As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each h In headers
+                If Not String.IsNullOrWhiteSpace(h) Then
+                    targetSet.Add(h.Trim())
+                End If
+            Next
+            If targetSet.Count = 0 Then
+                Return
+            End If
+            Dim cols As New List(Of Integer)()
+            For ci As Integer = 0 To headerRow.LastCellNum - 1
+                Dim name = headerRow.GetCell(ci)?.StringCellValue
+                If Not String.IsNullOrWhiteSpace(name) AndAlso targetSet.Contains(name.Trim()) Then
+                    cols.Add(ci)
+                End If
+            Next
+            If cols.Count = 0 Then
+                Return
+            End If
+            Dim df As Short = wb.CreateDataFormat().GetFormat(format)
+            Dim styleCache As New Dictionary(Of Short, ICellStyle)()
+            For r As Integer = headerRowIndex + 1 To sheet.LastRowNum
+                Dim row = sheet.GetRow(r)
+                If row Is Nothing Then
+                    Continue For
+                End If
+                For Each ci In cols
+                    Dim cell = row.GetCell(ci)
+                    If cell Is Nothing Then
+                        Continue For
+                    End If
+                    Dim srcStyle As ICellStyle = cell.CellStyle
+                    Dim key As Short = If(srcStyle Is Nothing, -1S, srcStyle.Index)
+                    Dim cached As ICellStyle = Nothing
+                    If key >= 0 AndAlso styleCache.TryGetValue(key, cached) Then
+                        cell.CellStyle = cached
+                    Else
+                        Dim newStyle = wb.CreateCellStyle()
+                        If srcStyle IsNot Nothing Then
+                            newStyle.CloneStyleFrom(srcStyle)
+                        End If
+                        newStyle.DataFormat = df
+                        If key >= 0 Then
+                            styleCache(key) = newStyle
+                        End If
+                        cell.CellStyle = newStyle
+                    End If
+                Next
+            Next
+        End Sub
+
+        Public Sub ApplyResultFillByHeader(wb As IWorkbook,
+                                           sheet As ISheet,
+                                           headerRowIndex As Integer)
+            If wb Is Nothing OrElse sheet Is Nothing Then
+                Return
+            End If
+            Dim headerRow = sheet.GetRow(headerRowIndex)
+            If headerRow Is Nothing Then
+                Return
+            End If
+            Dim targetCol As Integer = -1
+            For ci As Integer = 0 To headerRow.LastCellNum - 1
+                Dim name = headerRow.GetCell(ci)?.StringCellValue
+                If String.IsNullOrWhiteSpace(name) Then
+                    Continue For
+                End If
+                Dim lower = name.ToLowerInvariant()
+                If lower.Contains("result") OrElse lower.Contains("status") OrElse lower.Contains("검토") Then
+                    targetCol = ci
+                    Exit For
+                End If
+            Next
+            If targetCol < 0 Then
+                Return
+            End If
+
+            Dim okStyle = CreateFillStyle(wb, IndexedColors.LightGreen.Index)
+            Dim mismatchStyle = CreateFillStyle(wb, IndexedColors.Rose.Index)
+            Dim missingStyle = CreateFillStyle(wb, IndexedColors.LightYellow.Index)
+
+            For r As Integer = headerRowIndex + 1 To sheet.LastRowNum
+                Dim row = sheet.GetRow(r)
+                If row Is Nothing Then Continue For
+                Dim cell = row.GetCell(targetCol)
+                If cell Is Nothing Then Continue For
+                Dim txt = cell.ToString()
+                If String.IsNullOrWhiteSpace(txt) Then
+                    cell.CellStyle = MergeStyles(cell.CellStyle, missingStyle, wb)
+                ElseIf txt.IndexOf("Mismatch", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    cell.CellStyle = MergeStyles(cell.CellStyle, mismatchStyle, wb)
+                ElseIf txt.IndexOf("Missing", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    cell.CellStyle = MergeStyles(cell.CellStyle, missingStyle, wb)
+                ElseIf txt.IndexOf("OK", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    cell.CellStyle = MergeStyles(cell.CellStyle, okStyle, wb)
+                End If
+            Next
+        End Sub
+
+        Private Function CreateFillStyle(wb As IWorkbook, colorIndex As Short) As ICellStyle
+            Dim st = wb.CreateCellStyle()
+            st.FillPattern = FillPattern.SolidForeground
+            st.FillForegroundColor = colorIndex
+            Return st
+        End Function
+
+        Private Function MergeStyles(baseStyle As ICellStyle, fillStyle As ICellStyle, wb As IWorkbook) As ICellStyle
+            Dim newStyle = wb.CreateCellStyle()
+            If baseStyle IsNot Nothing Then
+                newStyle.CloneStyleFrom(baseStyle)
+            End If
+            If fillStyle IsNot Nothing Then
+                newStyle.FillPattern = fillStyle.FillPattern
+                newStyle.FillForegroundColor = fillStyle.FillForegroundColor
+            End If
+            Return newStyle
         End Function
 
     End Module
