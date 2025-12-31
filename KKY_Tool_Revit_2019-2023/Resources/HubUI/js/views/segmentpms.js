@@ -20,9 +20,9 @@ function saveRvtList(list) {
 
 function loadOpts() {
   try {
-    return Object.assign({ tolMm: 0.01, ndRound: 3, unit: 'mm' }, JSON.parse(localStorage.getItem(LS_OPTS) || '{}'));
+    return Object.assign({ tolMm: 0.01, ndRound: 3, unit: 'mm', classMatch: false }, JSON.parse(localStorage.getItem(LS_OPTS) || '{}'));
   } catch {
-    return { tolMm: 0.01, ndRound: 3, unit: 'mm' };
+    return { tolMm: 0.01, ndRound: 3, unit: 'mm', classMatch: false };
   }
 }
 
@@ -63,12 +63,14 @@ export function renderSegmentPms() {
     <label>ND Join Round</label><input type="number" value="${opts.ndRound || 3}" min="0" max="6" step="1">
     <label>허용오차(mm)</label><input type="number" value="${opts.tolMm || 0.01}" step="0.01">
     <label>PMS 단위</label><select><option value="mm">mm</option><option value="inch">inch</option></select>
+    <label class="segmentpms-toggle"><input type="checkbox"> Class 재질 매칭 검토</label>
   </div>`;
   const numRound = control.querySelector('input[type="number"]');
   const tolBox = control.querySelectorAll('input[type="number"]')[1];
   const unitSel = control.querySelector('select'); unitSel.value = opts.unit || 'mm';
-  numRound.addEventListener('change', commitOpts); tolBox.addEventListener('change', commitOpts); unitSel.addEventListener('change', commitOpts);
-  function commitOpts() { saveOpts({ ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01'), unit: String(unitSel.value || 'mm') }); }
+  const classMatchCk = control.querySelector('input[type="checkbox"]'); classMatchCk.checked = !!opts.classMatch;
+  numRound.addEventListener('change', commitOpts); tolBox.addEventListener('change', commitOpts); unitSel.addEventListener('change', commitOpts); classMatchCk.addEventListener('change', commitOpts);
+  function commitOpts() { saveOpts({ ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01'), unit: String(unitSel.value || 'mm'), classMatch: !!classMatchCk.checked }); }
   page.append(control);
 
   /* Extract section */
@@ -105,7 +107,7 @@ export function renderSegmentPms() {
   const btnRun = cardBtn('검토 시작', onRun);
   const btnSave = cardBtn('검토 결과 저장', () => {
     if (!state.results) { toast('저장할 결과가 없습니다.', 'err'); return; }
-    post('segmentpms:save-result', state.results);
+    post('segmentpms:save-result', {});
   });
   chActions.append(btnLoadExtract, btnRegisterPms, btnPrepare, btnRun, btnSave);
   chHeader.append(chActions);
@@ -118,7 +120,7 @@ export function renderSegmentPms() {
 
   const resInfo = div('segmentpms-summary'); resInfo.textContent = '결과 없음';
   const resTable = document.createElement('table'); resTable.className = 'segmentpms-table';
-  resTable.innerHTML = '<thead><tr><th>파일</th><th>PipeType</th><th>Rule</th><th>Revit Segment</th><th>CLASS</th><th>PMS Segment</th><th>ND(mm)</th><th>Revit ID/OD</th><th>PMS ID/OD</th><th>Status</th></tr></thead><tbody></tbody>';
+  resTable.innerHTML = '<thead><tr><th>파일</th><th>PipeType</th><th>Rule</th><th>Revit Segment</th><th>CLASS</th><th>PMS Segment</th><th>ND(mm)</th><th>Revit ID/OD</th><th>PMS ID/OD</th><th>Status</th><th>Class 매칭</th></tr></thead><tbody></tbody>';
   const resBody = resTable.querySelector('tbody');
   checkSection.append(resInfo, resTable);
   page.append(checkSection);
@@ -242,28 +244,30 @@ export function renderSegmentPms() {
     if (!state.pmsLoaded) { toast('PMS를 등록하세요.', 'err'); return; }
     const groups = [...state.selections.values()];
     setBusy(true, '검토 실행'); state.busy = true; updateButtons();
-    post('segmentpms:run', { groups, ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01') });
+    post('segmentpms:run', { groups, ndRound: parseInt(numRound.value || '3', 10), tolMm: parseFloat(tolBox.value || '0.01'), classMatch: !!classMatchCk.checked });
   }
 
   function paintResults(payload) {
-    state.results = payload;
+    state.results = payload || { hasResult: true };
     resBody.innerHTML = '';
     const rows = payload?.compare || [];
-    const total = rows.length;
+    const total = payload?.totalCount || rows.length;
     const show = rows.slice(0, MAX_UI_ROWS);
     if (total === 0) {
       resInfo.textContent = '결과 없음';
     } else if (total <= MAX_UI_ROWS) {
       resInfo.textContent = `총 ${total}건`;
     } else {
-      resInfo.textContent = `총 ${total}건 (화면에는 ${MAX_UI_ROWS}건만 표시, 나머지는 엑셀 저장으로 확인)`;
+      resInfo.textContent = `총 ${total}건 (화면에는 ${MAX_UI_ROWS}건만 표시, 전체는 엑셀 저장에서 확인)`;
     }
     show.forEach(r => {
       const tr = document.createElement('tr');
       tr.append(td(r.File), td(r.PipeTypeName), td(r.SegmentRuleIndex), td(r.RevitSegmentKey), td(r.CLASS), td(r.PMS_SegmentKey), td(r.ND_mm));
       tr.append(td(`${r.Revit_ID}/${r.Revit_OD}`));
       tr.append(td(`${r.PMS_ID}/${r.PMS_OD}`));
-      const status = td(r.Status); status.dataset.status = String(r.Status || ''); tr.append(status); resBody.append(tr);
+      const status = td(r.Status); status.dataset.status = String(r.Status || ''); tr.append(status);
+      tr.append(td(r.ClassMatchStatus));
+      resBody.append(tr);
     });
   }
 
@@ -338,7 +342,11 @@ export function renderSegmentPms() {
         updateButtons();
         break;
       case 'segmentpms:saved':
-        showExcelSavedDialog('결과를 저장했습니다.', msg.payload?.path);
+        showExcelSavedDialog('결과를 저장했습니다.', msg.payload?.path, (p) => {
+          const target = p || msg.payload?.path;
+          if (!target) { toast('열 수 있는 경로가 없습니다.', 'err'); return; }
+          post('excel:open', { path: target });
+        });
         break;
       case 'segmentpms:error':
         setBusy(false); state.busy = false;

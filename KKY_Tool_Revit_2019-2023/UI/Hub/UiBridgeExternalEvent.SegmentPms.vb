@@ -21,6 +21,12 @@ Namespace UI.Hub
         Private _pmsUnitPref As String = "mm"
         Private _lastExtractPath As String = String.Empty
         Private _lastRunResult As SegmentPmsCheckService.RunResult = Nothing
+        Private _segmentPmsLastResult As SegmentPmsResultCache = Nothing
+
+        Private Class SegmentPmsResultCache
+            Public Property RunResult As SegmentPmsCheckService.RunResult
+            Public Property TotalCount As Integer
+        End Class
 
         Private Shared Function ParsePayloadDict(payload As Object) As Dictionary(Of String, Object)
             Dim dict = TryCast(payload, Dictionary(Of String, Object))
@@ -138,6 +144,12 @@ Namespace UI.Hub
                 If Double.TryParse(If(v, 0.01R).ToString(), dv) Then
                     opts.TolMm = dv
                 End If
+            End If
+            If payload.ContainsKey("classMatch") Then
+                Try
+                    opts.ClassMatch = Convert.ToBoolean(payload("classMatch"))
+                Catch
+                End Try
             End If
             Return opts
         End Function
@@ -291,6 +303,7 @@ Namespace UI.Hub
                 End If
 
                 Try
+                    _segmentPmsLastResult = Nothing
                     _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts)
                     _lastExtractPath = dlg.FileName
                     SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
@@ -336,6 +349,7 @@ Namespace UI.Hub
                 End If
 
                 Try
+                    _segmentPmsLastResult = Nothing
                     _extractData = SegmentPmsCheckService.LoadExtractFromXlsx(dlg.FileName)
                     _lastExtractPath = dlg.FileName
                     Dim summary = BuildExtractSummary(_extractData)
@@ -427,10 +441,12 @@ Namespace UI.Hub
                 maps = SegmentPmsCheckService.ExpandGroupSelections(groups, groupSelections)
             End If
 
+            _segmentPmsLastResult = Nothing
             Try
                 Dim run = SegmentPmsCheckService.RunCompare(_extractData, _pmsRows, maps, opts)
                 _lastRunResult = run
-                Dim compare = DataTableToObjects(run.CompareTable)
+                _segmentPmsLastResult = New SegmentPmsResultCache With {.RunResult = run, .TotalCount = If(run.CompareTable Is Nothing, 0, run.CompareTable.Rows.Count)}
+                Dim compare = DataTableToObjects(run.CompareTable, maxRows:=200)
                 Dim map = DataTableToObjects(run.MapTable)
                 Dim revitRaw = DataTableToObjects(run.RevitSizeTable)
                 Dim pmsRaw = DataTableToObjects(run.PmsSizeTable)
@@ -438,6 +454,7 @@ Namespace UI.Hub
                 Dim summary = DataTableToObjects(run.SummaryTable)
                 SendToWeb("segmentpms:result", New With {
                     .compare = compare,
+                    .totalCount = _segmentPmsLastResult.TotalCount,
                     .map = map,
                     .revitRaw = revitRaw,
                     .pmsRaw = pmsRaw,
@@ -458,13 +475,13 @@ Namespace UI.Hub
             Dim errorRows As List(Of Dictionary(Of String, Object)) = Nothing
             Dim summaryRows As List(Of Dictionary(Of String, Object)) = Nothing
 
-            If _lastRunResult IsNot Nothing Then
-                compareRows = DataTableToObjects(_lastRunResult.CompareTable)
-                mapRows = DataTableToObjects(_lastRunResult.MapTable)
-                revitRows = DataTableToObjects(_lastRunResult.RevitSizeTable)
-                pmsRows = DataTableToObjects(_lastRunResult.PmsSizeTable)
-                errorRows = DataTableToObjects(_lastRunResult.ErrorTable)
-                summaryRows = DataTableToObjects(_lastRunResult.SummaryTable)
+            If _segmentPmsLastResult IsNot Nothing AndAlso _segmentPmsLastResult.RunResult IsNot Nothing Then
+                compareRows = DataTableToObjects(_segmentPmsLastResult.RunResult.CompareTable)
+                mapRows = DataTableToObjects(_segmentPmsLastResult.RunResult.MapTable)
+                revitRows = DataTableToObjects(_segmentPmsLastResult.RunResult.RevitSizeTable)
+                pmsRows = DataTableToObjects(_segmentPmsLastResult.RunResult.PmsSizeTable)
+                errorRows = DataTableToObjects(_segmentPmsLastResult.RunResult.ErrorTable)
+                summaryRows = DataTableToObjects(_segmentPmsLastResult.RunResult.SummaryTable)
             End If
 
             If compareRows Is Nothing Then
@@ -493,7 +510,7 @@ Namespace UI.Hub
                                      (errorRows IsNot Nothing AndAlso errorRows.Count > 0) OrElse
                                      (summaryRows IsNot Nothing AndAlso summaryRows.Count > 0)
             If Not hasData Then
-                SendToWeb("segmentpms:error", New With {.message = "저장할 결과가 없습니다."})
+                SendToWeb("segmentpms:error", New With {.message = "먼저 검토를 실행하세요."})
                 Return
             End If
 
@@ -513,10 +530,15 @@ Namespace UI.Hub
                     AddSheet(wb, "SegmentSizeRaw_PMS", pmsRows)
                     AddSheet(wb, "Summary", summaryRows)
                     AddSheet(wb, "Error", errorRows)
-                    Using fs As New FileStream(dlg.FileName, FileMode.Create, FileAccess.Write)
+                    Dim savePath As String = dlg.FileName
+                    Try
+                        savePath = Path.GetFullPath(dlg.FileName)
+                    Catch
+                    End Try
+                    Using fs As New FileStream(savePath, FileMode.Create, FileAccess.Write)
                         wb.Write(fs)
                     End Using
-                    SendToWeb("segmentpms:saved", New With {.path = dlg.FileName})
+                    SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
@@ -587,12 +609,17 @@ Namespace UI.Hub
             Return list
         End Function
 
-        Private Shared Function DataTableToObjects(t As DataTable) As List(Of Dictionary(Of String, Object))
+        Private Shared Function DataTableToObjects(t As DataTable, Optional maxRows As Integer = Integer.MaxValue) As List(Of Dictionary(Of String, Object))
             Dim list As New List(Of Dictionary(Of String, Object))()
             If t Is Nothing Then
                 Return list
             End If
+            Dim count As Integer = 0
             For Each r As DataRow In t.Rows
+                count += 1
+                If count > maxRows Then
+                    Exit For
+                End If
                 Dim d As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase)
                 For Each c As DataColumn In t.Columns
                     d(c.ColumnName) = r(c)

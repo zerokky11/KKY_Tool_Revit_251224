@@ -4,7 +4,9 @@ Option Strict On
 Imports System
 Imports System.Collections.Generic
 Imports System.Diagnostics
+Imports System.IO
 Imports System.Reflection
+Imports System.Threading
 Imports Autodesk.Revit.UI
 
 ' 네임스페이스는 프로젝트와 일치시켜 주세요.
@@ -242,13 +244,88 @@ Namespace UI.Hub
         End Sub
 
         Private Sub HandleExcelOpen(payload As Object)
+            Dim rawPath As String = TryCast(GetProp(payload, "path"), String)
+            If String.IsNullOrWhiteSpace(rawPath) Then
+                SendToWeb("host:warn", New With {.message = "엑셀 경로가 비어 있습니다."})
+                Return
+            End If
+
+            Dim fullPath As String = rawPath
             Try
-                Dim path = TryCast(GetProp(payload, "path"), String)
-                If String.IsNullOrWhiteSpace(path) Then Return
-                Process.Start(New ProcessStartInfo(path) With {.UseShellExecute = True})
-            Catch ex As Exception
-                SendToWeb("host:error", New With {.message = "엑셀을 열 수 없습니다: " & ex.Message})
+                fullPath = System.IO.Path.GetFullPath(rawPath)
+            Catch
+                ' ignore
             End Try
+
+            Dim fileExists As Boolean = False
+            Try
+                fileExists = System.IO.File.Exists(fullPath)
+            Catch
+                ' ignore
+            End Try
+
+            If Not fileExists Then
+                SendToWeb("host:warn", New With {.message = "엑셀 파일을 찾을 수 없습니다: " & fullPath, .path = fullPath})
+                Return
+            End If
+
+            Try
+                Dim info As New System.IO.FileInfo(fullPath)
+                Dim lengthOk As Boolean = False
+                For i As Integer = 0 To 9
+                    info.Refresh()
+                    If info.Exists AndAlso info.Length > 0 Then
+                        lengthOk = True
+                        Exit For
+                    End If
+                    System.Threading.Thread.Sleep(200)
+                Next
+                If Not lengthOk Then
+                    SendToWeb("host:warn", New With {.message = "파일 크기가 0입니다. 열기를 시도합니다: " & fullPath, .path = fullPath})
+                End If
+            Catch ex As Exception
+                SendToWeb("host:warn", New With {.message = "파일 상태 확인에 실패했습니다: " & ex.Message, .path = fullPath})
+            End Try
+
+            Dim opened As Boolean = False
+            Dim firstError As Exception = Nothing
+
+            Try
+                Dim psi As New System.Diagnostics.ProcessStartInfo(fullPath)
+                psi.UseShellExecute = True
+
+                Dim dir As String = System.IO.Path.GetDirectoryName(fullPath)
+                If Not String.IsNullOrWhiteSpace(dir) Then
+                    psi.WorkingDirectory = dir
+                End If
+
+                System.Diagnostics.Process.Start(psi)
+                opened = True
+                SendToWeb("host:info", New With {.message = "엑셀 열기를 시도했습니다: " & fullPath, .path = fullPath})
+            Catch ex As Exception
+                firstError = ex
+            End Try
+
+            If Not opened Then
+                Try
+                    Dim psi As New System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,""" & fullPath & """")
+                    psi.UseShellExecute = True
+                    System.Diagnostics.Process.Start(psi)
+                    opened = True
+
+                    Dim warnMsg As String = "엑셀 열기에 실패하여 탐색기로 열었습니다: " & fullPath
+                    If firstError IsNot Nothing Then
+                        warnMsg &= " (" & firstError.Message & ")"
+                    End If
+                    SendToWeb("host:warn", New With {.message = warnMsg, .path = fullPath})
+                Catch ex As Exception
+                    Dim msg As String = "엑셀 열기 실패: " & ex.Message
+                    If firstError IsNot Nothing Then
+                        msg &= " / 최초 오류: " & firstError.Message
+                    End If
+                    SendToWeb("host:warn", New With {.message = msg, .path = fullPath})
+                End Try
+            End If
         End Sub
 
         Private Sub HandleSwitchDocument(app As UIApplication, payload As Object)

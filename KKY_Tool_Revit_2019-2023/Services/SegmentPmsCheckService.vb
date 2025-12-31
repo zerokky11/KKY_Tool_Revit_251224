@@ -7,6 +7,7 @@ Imports System.Data
 Imports System.Globalization
 Imports System.IO
 Imports System.Text
+Imports System.Text.RegularExpressions
 Imports Autodesk.Revit.DB
 Imports Autodesk.Revit.DB.Plumbing
 Imports Autodesk.Revit.UI
@@ -55,6 +56,7 @@ Namespace Services
         Public Class CompareOptions
             Public Property NdRound As Integer = 3
             Public Property TolMm As Double = 0.01R
+            Public Property ClassMatch As Boolean = False
         End Class
 
         Public Class SuggestedMapping
@@ -582,6 +584,7 @@ Namespace Services
 
             Dim ndRound As Integer = options.NdRound
             Dim tol As Double = options.TolMm
+            Dim doClassMatch As Boolean = options.ClassMatch
 
             Dim meta = extractData.Tables(TableMeta)
             If meta IsNot Nothing AndAlso meta.Rows.Count > 0 Then
@@ -594,6 +597,10 @@ Namespace Services
                     tol = tolVal
                 End If
             End If
+
+            Dim pipeClassMap = BuildPipeTypeClassMap(extractData)
+            Dim segmentClassMap = BuildSegmentClassMap(extractData)
+            Dim routingClassMap = BuildRoutingClassMap(extractData)
 
             Dim sizeRows As New List(Of ExtractSizeRow)()
             Dim sizeTable As DataTable = extractData.Tables(TableSizes)
@@ -644,6 +651,20 @@ Namespace Services
             Next
 
             For Each m In mappings
+                Dim pipeKey = Tuple.Create(NormalizePath(m.File), m.PipeTypeName)
+                Dim pipeClassRaw As String = GetDictValue(pipeClassMap, pipeKey)
+                Dim segmentClassRaw As String = ExtractClassToken(If(GetDictValue(segmentClassMap, m.SegmentKey), m.SegmentKey))
+                Dim routingSet As List(Of String) = Nothing
+                Dim routingKey = Tuple.Create(NormalizePath(m.File), m.PipeTypeName)
+                routingClassMap.TryGetValue(routingKey, routingSet)
+                Dim classCheck = EvaluateClassMatch(doClassMatch, pipeClassRaw, segmentClassRaw, routingSet)
+                If Not doClassMatch Then
+                    pipeClassRaw = String.Empty
+                    segmentClassRaw = String.Empty
+                    routingSet = Nothing
+                End If
+                Dim routingSetStr As String = If(doClassMatch, String.Join("|", If(routingSet, New List(Of String)())), String.Empty)
+
                 Dim mapRow = res.MapTable.NewRow()
                 mapRow("File") = m.File
                 mapRow("PipeTypeName") = m.PipeTypeName
@@ -663,13 +684,13 @@ Namespace Services
                 pmsDict.TryGetValue(pmsKey, pmsSizes)
 
                 If String.IsNullOrWhiteSpace(m.SelectedPmsSegment) Then
-                    AddMissingMappingRows(res.CompareTable, revSizes, m, ndRound)
+                    AddMissingMappingRows(res.CompareTable, revSizes, m, ndRound, pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                     Continue For
                 End If
 
                 If revSizes Is Nothing OrElse revSizes.Count = 0 Then
                     AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  0, 0, 0, 0, 0, "MissingRevitRow")
+                                  0, 0, 0, 0, 0, "MissingRevitRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                     Continue For
                 End If
 
@@ -701,7 +722,7 @@ Namespace Services
 
                 If ndKeys.Count = 0 Then
                     AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  0, 0, 0, 0, 0, If(pmsSizes Is Nothing OrElse pmsSizes.Count = 0, "MissingPmsRow", "MissingRevitRow"))
+                                  0, 0, 0, 0, 0, If(pmsSizes Is Nothing OrElse pmsSizes.Count = 0, "MissingPmsRow", "MissingRevitRow"), pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                     Continue For
                 End If
 
@@ -713,13 +734,13 @@ Namespace Services
 
                     If r Is Nothing AndAlso p IsNot Nothing Then
                         AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                      p.NdMm, 0, 0, p.IdMm, p.OdMm, "MissingRevitRow")
+                                      p.NdMm, 0, 0, p.IdMm, p.OdMm, "MissingRevitRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                         Continue For
                     End If
 
                     If r IsNot Nothing AndAlso p Is Nothing Then
                         AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                      r.NdMm, r.IdMm, r.OdMm, 0, 0, "MissingPmsRow")
+                                      r.NdMm, r.IdMm, r.OdMm, 0, 0, "MissingPmsRow", pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                         Continue For
                     End If
 
@@ -735,7 +756,7 @@ Namespace Services
                     End If
 
                     AddCompareRow(res.CompareTable, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  r.NdMm, r.IdMm, r.OdMm, p.IdMm, p.OdMm, status)
+                                  r.NdMm, r.IdMm, r.OdMm, p.IdMm, p.OdMm, status, pipeClassRaw, segmentClassRaw, routingSetStr, classCheck.Status, classCheck.Note)
                 Next
             Next
 
@@ -778,6 +799,171 @@ Namespace Services
         ' ---------------------------
         ' Helpers
         ' ---------------------------
+        Private Class ClassMatchResult
+            Public Property Status As String = String.Empty
+            Public Property Note As String = String.Empty
+        End Class
+
+        Private Shared Function BuildPipeTypeClassMap(extractData As DataSet) As Dictionary(Of Tuple(Of String, String), String)
+            Dim map As New Dictionary(Of Tuple(Of String, String), String)(TupleComparer())
+            If extractData Is Nothing OrElse Not extractData.Tables.Contains(TableRules) Then
+                Return map
+            End If
+            Dim rules = extractData.Tables(TableRules)
+            For Each r As DataRow In rules.Rows
+                Dim key = Tuple.Create(NormalizePath(SafeStr(r("File"))), SafeStr(r("PipeTypeName")))
+                If Not map.ContainsKey(key) Then
+                    map(key) = ExtractClassToken(SafeStr(r("PipeTypeName")))
+                End If
+            Next
+            Return map
+        End Function
+
+        Private Shared Function BuildSegmentClassMap(extractData As DataSet) As Dictionary(Of String, String)
+            Dim map As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+            If extractData Is Nothing OrElse Not extractData.Tables.Contains(TableRules) Then
+                Return map
+            End If
+            Dim rules = extractData.Tables(TableRules)
+            For Each r As DataRow In rules.Rows
+                Dim segKey = SafeStr(r("SegmentKey"))
+                If Not map.ContainsKey(segKey) Then
+                    map(segKey) = ExtractClassToken(segKey)
+                End If
+            Next
+            Return map
+        End Function
+
+        Private Shared Function BuildRoutingClassMap(extractData As DataSet) As Dictionary(Of Tuple(Of String, String), List(Of String))
+            Dim map As New Dictionary(Of Tuple(Of String, String), List(Of String))(TupleComparer())
+            If extractData Is Nothing OrElse Not extractData.Tables.Contains(TableRouting) Then
+                Return map
+            End If
+            Dim routing = extractData.Tables(TableRouting)
+            For Each r As DataRow In routing.Rows
+                Dim key = Tuple.Create(NormalizePath(SafeStr(r("File"))), SafeStr(r("PipeTypeName")))
+                Dim rawPart = SafeStr(r("PartName"))
+                Dim parts = rawPart.Split(New String() {"|"}, StringSplitOptions.None)
+                For Each p In parts
+                    Dim cls = ExtractClassToken(p)
+                    Dim norm = NormalizeClassToken(cls)
+                    If String.IsNullOrWhiteSpace(norm) Then
+                        Continue For
+                    End If
+                    If Not map.ContainsKey(key) Then
+                        map(key) = New List(Of String)()
+                    End If
+                    Dim existingNorms As New HashSet(Of String)(map(key).ConvertAll(Function(x) NormalizeClassToken(x)), StringComparer.OrdinalIgnoreCase)
+                    If Not existingNorms.Contains(norm) Then
+                        map(key).Add(cls)
+                    End If
+                Next
+            Next
+            Return map
+        End Function
+
+        Private Shared Function EvaluateClassMatch(doCheck As Boolean, pipeTypeClass As String, segmentClass As String, routingSet As List(Of String)) As ClassMatchResult
+            Dim res As New ClassMatchResult()
+            If Not doCheck Then
+                Return res
+            End If
+
+            Dim pipeNorm = NormalizeClassToken(pipeTypeClass)
+            Dim segNorm = NormalizeClassToken(segmentClass)
+            Dim routingNorms As New List(Of String)()
+            Dim routingRaw As New List(Of String)()
+            If routingSet IsNot Nothing Then
+                For Each r In routingSet
+                    Dim norm = NormalizeClassToken(r)
+                    If Not String.IsNullOrWhiteSpace(norm) Then
+                        routingNorms.Add(norm)
+                        routingRaw.Add(r)
+                    End If
+                Next
+            End If
+
+            If String.IsNullOrWhiteSpace(pipeNorm) AndAlso String.IsNullOrWhiteSpace(segNorm) AndAlso routingNorms.Count = 0 Then
+                res.Status = "N/A"
+                Return res
+            End If
+
+            Dim expected = If(Not String.IsNullOrWhiteSpace(segNorm), segNorm, pipeNorm)
+            Dim noteParts As New List(Of String)()
+
+            If Not String.IsNullOrWhiteSpace(pipeNorm) AndAlso Not String.IsNullOrWhiteSpace(segNorm) AndAlso Not pipeNorm.Equals(segNorm, StringComparison.OrdinalIgnoreCase) Then
+                noteParts.Add(String.Format("PipeType:{0} vs Segment:{1}", pipeTypeClass, segmentClass))
+            End If
+
+            If routingNorms.Count > 0 AndAlso Not String.IsNullOrWhiteSpace(expected) Then
+                Dim expectedRaw As String = If(String.IsNullOrWhiteSpace(segmentClass), pipeTypeClass, segmentClass)
+                For i As Integer = 0 To routingNorms.Count - 1
+                    If Not routingNorms(i).Equals(expected, StringComparison.OrdinalIgnoreCase) Then
+                        Dim rawVal As String = routingRaw(i)
+                        noteParts.Add(String.Format("Routing:{0} vs {1}", rawVal, expectedRaw))
+                    End If
+                Next
+            End If
+
+            If noteParts.Count > 0 Then
+                res.Status = "Mismatch"
+                res.Note = String.Join("; ", noteParts)
+            Else
+                res.Status = If(String.IsNullOrWhiteSpace(expected) AndAlso routingNorms.Count = 0, "N/A", "OK")
+                res.Note = String.Empty
+            End If
+
+            Return res
+        End Function
+
+        Private Shared Function ExtractClassToken(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+
+            Dim firstPass As String = String.Empty
+            Dim parts = text.Split(","c)
+            For Each p In parts
+                Dim trimmed = p.Trim()
+                If trimmed.IndexOf("("c) >= 0 AndAlso trimmed.IndexOf(")"c) > trimmed.IndexOf("("c) Then
+                    firstPass = trimmed
+                    Exit For
+                End If
+            Next
+
+            If String.IsNullOrWhiteSpace(firstPass) Then
+                Dim m = Regex.Match(text, "^\s*([A-Za-z0-9]+\(.*?\))")
+                If m.Success AndAlso m.Groups.Count > 1 Then
+                    firstPass = m.Groups(1).Value.Trim()
+                End If
+            End If
+
+            If String.IsNullOrWhiteSpace(firstPass) AndAlso parts.Length > 0 Then
+                firstPass = parts(0).Trim()
+            End If
+
+            Return firstPass
+        End Function
+
+        Private Shared Function NormalizeClassToken(token As String) As String
+            If String.IsNullOrWhiteSpace(token) Then
+                Return String.Empty
+            End If
+            Dim t = token.Trim().ToUpperInvariant()
+            t = t.Replace(" - REF.", String.Empty).Replace("- REF.", String.Empty).Replace("-REF.", String.Empty).Replace(" -REF.", String.Empty)
+            While t.Contains("  ")
+                t = t.Replace("  ", " ")
+            End While
+            Return t.Trim()
+        End Function
+
+        Private Shared Function GetDictValue(Of TKey, TValue)(dict As Dictionary(Of TKey, TValue), key As TKey) As TValue
+            Dim val As TValue = Nothing
+            If dict IsNot Nothing AndAlso dict.TryGetValue(key, val) Then
+                Return val
+            End If
+            Return Nothing
+        End Function
+
         Private Shared Function BuildOpenOptions(opts As ExtractOptions, filePath As String) As OpenOptions
             Dim opt As New OpenOptions()
             opt.Audit = False
@@ -912,6 +1098,11 @@ Namespace Services
             t.Columns.Add("Diff_ID", GetType(String))
             t.Columns.Add("Diff_OD", GetType(String))
             t.Columns.Add("Status", GetType(String))
+            t.Columns.Add("PipeTypeClass", GetType(String))
+            t.Columns.Add("SegmentClass", GetType(String))
+            t.Columns.Add("RoutingClassSet", GetType(String))
+            t.Columns.Add("ClassMatchStatus", GetType(String))
+            t.Columns.Add("ClassMatchNote", GetType(String))
             Return t
         End Function
 
@@ -948,7 +1139,12 @@ Namespace Services
                                          revOd As Double,
                                          pmsId As Double,
                                          pmsOd As Double,
-                                         status As String)
+                                         status As String,
+                                         Optional pipeTypeClass As String = "",
+                                         Optional segmentClass As String = "",
+                                         Optional routingClassSet As String = "",
+                                         Optional classMatchStatus As String = "",
+                                         Optional classMatchNote As String = "")
             Dim row = table.NewRow()
             row("File") = file
             row("PipeTypeName") = pipeType
@@ -964,18 +1160,31 @@ Namespace Services
             row("Diff_ID") = (revId - pmsId).ToString("0.###", CultureInfo.InvariantCulture)
             row("Diff_OD") = (revOd - pmsOd).ToString("0.###", CultureInfo.InvariantCulture)
             row("Status") = status
+            row("PipeTypeClass") = pipeTypeClass
+            row("SegmentClass") = segmentClass
+            row("RoutingClassSet") = routingClassSet
+            row("ClassMatchStatus") = classMatchStatus
+            row("ClassMatchNote") = classMatchNote
             table.Rows.Add(row)
         End Sub
 
-        Private Shared Sub AddMissingMappingRows(table As DataTable, revSizes As List(Of ExtractSizeRow), m As MappingSelection, ndRound As Integer)
+        Private Shared Sub AddMissingMappingRows(table As DataTable,
+                                                 revSizes As List(Of ExtractSizeRow),
+                                                 m As MappingSelection,
+                                                 ndRound As Integer,
+                                                 Optional pipeTypeClass As String = "",
+                                                 Optional segmentClass As String = "",
+                                                 Optional routingClassSet As String = "",
+                                                 Optional classMatchStatus As String = "",
+                                                 Optional classMatchNote As String = "")
             If revSizes IsNot Nothing AndAlso revSizes.Count > 0 Then
                 For Each r In revSizes
                     AddCompareRow(table, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                                  Math.Round(r.NdMm, ndRound), r.IdMm, r.OdMm, 0, 0, "MissingMapping")
+                                  Math.Round(r.NdMm, ndRound), r.IdMm, r.OdMm, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
                 Next
             Else
                 AddCompareRow(table, m.File, m.PipeTypeName, m.RuleIndex, m.SegmentKey, m.SelectedClass, m.SelectedPmsSegment,
-                              0, 0, 0, 0, 0, "MissingMapping")
+                              0, 0, 0, 0, 0, "MissingMapping", pipeTypeClass, segmentClass, routingClassSet, classMatchStatus, classMatchNote)
             End If
         End Sub
 
