@@ -73,9 +73,7 @@ Namespace Infrastructure
 
             AutoSizeAll(sh, table.Columns.Count)
 
-            Using fs As New FileStream(filePath, FileMode.Create, FileAccess.Write)
-                wb.Write(fs)
-            End Using
+            SaveWorkbookToFile(wb, filePath)
             wb.Close()
         End Sub
 
@@ -158,10 +156,56 @@ Namespace Infrastructure
 
             AutoSizeAll(sh, table.Columns.Count)
 
-            Using fs As New FileStream(outPath, FileMode.Create, FileAccess.Write)
-                wb.Write(fs)
-            End Using
+            SaveWorkbookToFile(wb, outPath)
             wb.Close()
+        End Sub
+
+        Private Sub SaveWorkbookToFile(wb As IWorkbook, outPath As String)
+            If wb Is Nothing OrElse String.IsNullOrWhiteSpace(outPath) Then
+                Return
+            End If
+
+            Dim tmpPath As String = outPath & ".tmp"
+            Dim dir As String = Path.GetDirectoryName(outPath)
+            If Not String.IsNullOrWhiteSpace(dir) AndAlso Not Directory.Exists(dir) Then
+                Directory.CreateDirectory(dir)
+            End If
+
+            Try
+                If File.Exists(tmpPath) Then
+                    File.Delete(tmpPath)
+                End If
+
+                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
+                    wb.Write(fs)
+                    fs.Flush()
+                End Using
+
+                Try
+                    If File.Exists(outPath) Then
+                        Try
+                            File.Replace(tmpPath, outPath, Nothing)
+                        Catch
+                            File.Delete(outPath)
+                            File.Move(tmpPath, outPath)
+                        End Try
+                    Else
+                        File.Move(tmpPath, outPath)
+                    End If
+                Finally
+                    If File.Exists(tmpPath) Then
+                        File.Delete(tmpPath)
+                    End If
+                End Try
+            Catch
+                If File.Exists(tmpPath) Then
+                    Try
+                        File.Delete(tmpPath)
+                    Catch
+                    End Try
+                End If
+                Throw
+            End Try
         End Sub
 
         ' 공통: 얇은 테두리 + 자동열너비
@@ -174,7 +218,7 @@ Namespace Infrastructure
 
         Private Sub AutoSizeAll(sh As ISheet, colCount As Integer)
             For ci = 0 To colCount - 1
-                sh.AutoSizeColumn(ci, True) ' DPI 반영
+                sh.AutoSizeColumn(ci, False)
                 Dim cur = sh.GetColumnWidth(ci)
                 sh.SetColumnWidth(ci, Math.Min(cur + 512, 255 * 256))
             Next
@@ -199,7 +243,7 @@ Namespace Infrastructure
                                            Optional freezeTopRow As Boolean = True,
                                            Optional borderAll As Boolean = True,
                                            Optional autoFit As Boolean = True,
-                                           Optional headerFillColor As Short = IndexedColors.Grey25Percent.Index)
+                                           Optional headerFillColor As Short = -1S)
             If wb Is Nothing OrElse sheet Is Nothing Then
                 Return
             End If
@@ -221,8 +265,12 @@ Namespace Infrastructure
             Dim headStyle = wb.CreateCellStyle()
             headStyle.SetFont(headFont)
             headStyle.FillPattern = FillPattern.SolidForeground
-            headStyle.FillForegroundColor = headerFillColor
-            headStyle.Alignment = HorizontalAlignment.Left
+            Dim resolvedHeaderFill As Short = headerFillColor
+            If resolvedHeaderFill < 0 Then
+                resolvedHeaderFill = IndexedColors.Grey25Percent.Index
+            End If
+            headStyle.FillForegroundColor = resolvedHeaderFill
+            headStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left
             SetThinBorders(headStyle)
 
             For ci As Integer = 0 To lastCol
@@ -249,7 +297,11 @@ Namespace Infrastructure
                     If row Is Nothing Then
                         Continue For
                     End If
-                    For ci As Integer = 0 To lastCol
+                    Dim rowLastCol As Integer = row.LastCellNum - 1
+                    If rowLastCol < 0 Then
+                        Continue For
+                    End If
+                    For ci As Integer = 0 To rowLastCol
                         Dim cell = row.GetCell(ci)
                         If cell Is Nothing Then
                             Continue For
@@ -276,7 +328,7 @@ Namespace Infrastructure
 
             If autoFit Then
                 For ci As Integer = 0 To lastCol
-                    sheet.AutoSizeColumn(ci, True)
+                    sheet.AutoSizeColumn(ci, False)
                     Dim cur = sheet.GetColumnWidth(ci)
                     Dim padded = Math.Min(cur + 512, 255 * 256)
                     sheet.SetColumnWidth(ci, padded)
