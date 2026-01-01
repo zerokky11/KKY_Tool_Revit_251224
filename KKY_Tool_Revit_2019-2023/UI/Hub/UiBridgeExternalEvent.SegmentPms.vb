@@ -504,7 +504,7 @@ Namespace UI.Hub
                     End If
 
                     AddSheet(wb, "Pipe Segment Class검토", classRows, New List(Of String) From {"File", "PipeType", "Segment", "Class검토결과"})
-                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"File", "PipeType", "Revit Segment", "PMS Segment", "ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Result"})
+                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"FileName", "PipeType", "RevitSegment", "PMSCompared", "ND", "ID", "OD", "PMS ND", "PMS ID", "PMS OD", "Result"})
                     AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Type", "Class검토"})
                     Dim savePath As String = dlg.FileName
                     Try
@@ -695,7 +695,7 @@ Namespace UI.Hub
             Next
 
             ExcelCore.ApplyStandardSheetStyle(wb, sh, headerRowIndex:=0, autoFilter:=True, freezeTopRow:=True, borderAll:=True, autoFit:=True)
-            ExcelCore.ApplyNumberFormatByHeader(wb, sh, 0, New String() {"ND", "ID", "OD", "PMS_ND", "PMS_ID", "PMS_OD", "Diff_ID", "Diff_OD", "ND_mm", "ID_mm", "OD_mm", "PMS_ND", "PMS_ID", "PMS_OD"}, "0.###")
+            ExcelCore.ApplyNumberFormatByHeader(wb, sh, 0, New String() {"ND", "ID", "OD", "PMS ND", "PMS ID", "PMS OD", "PMS_ND", "PMS_ID", "PMS_OD", "Diff_ID", "Diff_OD", "ND_mm", "ID_mm", "OD_mm"}, "0.####################")
             ExcelCore.ApplyResultFillByHeader(wb, sh, 0)
         End Sub
 
@@ -752,9 +752,9 @@ Namespace UI.Hub
                     File.Delete(tmpPath)
                 End If
 
-                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
-                    wb.Write(fs)
-                    fs.Flush()
+                Using ms As New MemoryStream()
+                    wb.Write(ms)
+                    File.WriteAllBytes(tmpPath, ms.ToArray())
                 End Using
 
                 Try

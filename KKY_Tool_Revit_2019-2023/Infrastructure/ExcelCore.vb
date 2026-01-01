@@ -176,9 +176,9 @@ Namespace Infrastructure
                     File.Delete(tmpPath)
                 End If
 
-                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
-                    wb.Write(fs)
-                    fs.Flush()
+                Using ms As New MemoryStream()
+                    wb.Write(ms)
+                    File.WriteAllBytes(tmpPath, ms.ToArray())
                 End Using
 
                 Try
@@ -217,6 +217,12 @@ Namespace Infrastructure
         End Sub
 
         Private Sub AutoSizeAll(sh As ISheet, colCount As Integer)
+            If sh Is Nothing Then
+                Return
+            End If
+            If sh.LastRowNum > 10000 Then
+                Return
+            End If
             For ci = 0 To colCount - 1
                 sh.AutoSizeColumn(ci, False)
                 Dim cur = sh.GetColumnWidth(ci)
@@ -243,7 +249,7 @@ Namespace Infrastructure
                                            Optional freezeTopRow As Boolean = True,
                                            Optional borderAll As Boolean = True,
                                            Optional autoFit As Boolean = True,
-                                           Optional headerFillColor As Short = -1S)
+                                           Optional headerFillColor As Short = 0S)
             If wb Is Nothing OrElse sheet Is Nothing Then
                 Return
             End If
@@ -264,11 +270,11 @@ Namespace Infrastructure
             headFont.IsBold = True
             Dim headStyle = wb.CreateCellStyle()
             headStyle.SetFont(headFont)
-            headStyle.FillPattern = FillPattern.SolidForeground
             Dim resolvedHeaderFill As Short = headerFillColor
-            If resolvedHeaderFill < 0 Then
+            If resolvedHeaderFill = 0S Then
                 resolvedHeaderFill = IndexedColors.Grey25Percent.Index
             End If
+            headStyle.FillPattern = FillPattern.SolidForeground
             headStyle.FillForegroundColor = resolvedHeaderFill
             headStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left
             SetThinBorders(headStyle)

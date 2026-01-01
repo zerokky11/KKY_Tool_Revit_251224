@@ -501,18 +501,13 @@ Namespace Services
             Return result
         End Function
 
-        Private Class RevitSegmentKeyInfo
+        Private Class SegmentTokenInfo
             Public Property Raw As String = String.Empty
             Public Property BaseCode As String = String.Empty
-            Public Property Suffix As String = String.Empty
-            Public Property MaterialToken As String = String.Empty
-        End Class
-
-        Private Class PmsSegmentKeyInfo
-            Public Property PmsKeyRaw As String = String.Empty
-            Public Property BaseCode As String = String.Empty
-            Public Property Suffix As String = String.Empty
-            Public Property MaterialToken As String = String.Empty
+            Public Property Variant As String = String.Empty
+            Public Property Tokens As HashSet(Of String)
+            Public Property MaterialTokens As HashSet(Of String)
+            Public Property Normalized As String = String.Empty
             Public Property IsGroupLike As Boolean
         End Class
 
@@ -520,6 +515,17 @@ Namespace Services
             Public Property BestClass As String = String.Empty
             Public Property BestSegment As String = String.Empty
             Public Property Score As Double
+            Public Property DebugHint As String = String.Empty
+        End Class
+
+        Private Class CandidateScore
+            Public Property BaseScore As Double
+            Public Property VariantScore As Double
+            Public Property TokenScore As Double
+            Public Property Similarity As Double
+            Public Property Score As Double
+            Public Property LenDiff As Integer
+            Public Property Detail As String = String.Empty
         End Class
 
         Private Shared Function FindBestSuggestion(segmentKey As String, pmsData As List(Of PmsRow)) As SuggestionResult
@@ -527,119 +533,131 @@ Namespace Services
             If String.IsNullOrWhiteSpace(segmentKey) OrElse pmsData Is Nothing Then
                 Return res
             End If
-            Dim revitParsed = ParseRevitSegmentKey(segmentKey)
-            Dim normRevit = NormalizeForSimilarity(segmentKey)
-            If String.IsNullOrWhiteSpace(normRevit) Then
+
+            Dim revitTokens = TokenizeRevitSegmentKey(segmentKey)
+            If revitTokens.Tokens Is Nothing OrElse revitTokens.Tokens.Count = 0 Then
                 Return res
             End If
+
             Dim bestScore As Double = Double.MinValue
-            Dim bestStructure As Double = Double.MinValue
             Dim bestLenDiff As Integer = Integer.MaxValue
+            Dim bestDetail As String = String.Empty
+            Dim cache As New Dictionary(Of String, SegmentTokenInfo)(StringComparer.OrdinalIgnoreCase)
+
             For Each p In pmsData
-                Dim pParsed = ParsePmsSegmentKey(p.SegmentKey)
-                Dim normPms = NormalizeForSimilarity(p.SegmentKey)
-                If String.IsNullOrWhiteSpace(normPms) Then
-                    Continue For
+                Dim pTokens As SegmentTokenInfo = Nothing
+                If Not cache.TryGetValue(p.SegmentKey, pTokens) Then
+                    pTokens = TokenizePmsSegmentKey(p.SegmentKey)
+                    cache(p.SegmentKey) = pTokens
                 End If
-                Dim info = ComputeStructuredScore(revitParsed, normRevit, pParsed, normPms)
-                If info.Structural > bestStructure OrElse (Math.Abs(info.Structural - bestStructure) < 0.0001R AndAlso info.Score > bestScore) OrElse (Math.Abs(info.Structural - bestStructure) < 0.0001R AndAlso Math.Abs(info.Score - bestScore) < 0.0001R AndAlso info.LenDiff < bestLenDiff) Then
-                    bestStructure = info.Structural
+
+                Dim info = ComputeCandidateScore(revitTokens, pTokens)
+                If info.Score > bestScore OrElse (Math.Abs(info.Score - bestScore) < 0.0001R AndAlso info.LenDiff < bestLenDiff) Then
                     bestScore = info.Score
                     bestLenDiff = info.LenDiff
+                    bestDetail = info.Detail
                     res.BestClass = p.Class
                     res.BestSegment = p.SegmentKey
                     res.Score = info.Score
+                    res.DebugHint = bestDetail
                 End If
             Next
+
             If res.Score <= 0 Then
                 res.BestClass = String.Empty
                 res.BestSegment = String.Empty
+                res.DebugHint = String.Empty
             End If
             Return res
         End Function
 
-        Private Class CandidateScore
-            Public Property Structural As Double
-            Public Property Similarity As Double
-            Public Property Score As Double
-            Public Property LenDiff As Integer
-        End Class
+        Private Shared Function TokenizeRevitSegmentKey(segmentKey As String) As SegmentTokenInfo
+            Return TokenizeSegment(segmentKey, False)
+        End Function
 
-        Private Shared Function ParseRevitSegmentKey(segmentKey As String) As RevitSegmentKeyInfo
-            Dim info As New RevitSegmentKeyInfo With {.Raw = SafeStr(segmentKey)}
-            Dim txt = info.Raw
-            If String.IsNullOrWhiteSpace(txt) Then
+        Private Shared Function TokenizePmsSegmentKey(segmentKey As String) As SegmentTokenInfo
+            Return TokenizeSegment(segmentKey, True)
+        End Function
+
+        Private Shared Function TokenizeSegment(segmentKey As String, isPms As Boolean) As SegmentTokenInfo
+            Dim info As New SegmentTokenInfo With {
+                .Raw = SafeStr(segmentKey),
+                .Tokens = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase),
+                .MaterialTokens = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            }
+            If String.IsNullOrWhiteSpace(info.Raw) Then
                 Return info
             End If
 
-            Dim baseMatch = Regex.Match(txt, "^\s*([A-Z]\d+[A-Z0-9]*)", RegexOptions.IgnoreCase)
-            If baseMatch.Success AndAlso baseMatch.Groups.Count > 1 Then
-                info.BaseCode = baseMatch.Groups(1).Value.ToUpperInvariant()
+            Dim upperRaw = info.Raw.ToUpperInvariant()
+            Dim normalizedVariant = NormalizeVariantMarkers(upperRaw)
+            Dim withoutRef = Regex.Replace(normalizedVariant, "\bREF\.?\b", " ", RegexOptions.IgnoreCase)
+            Dim baseSource = withoutRef
+            If isPms Then
+                Dim pipeIdx As Integer = baseSource.LastIndexOf("|"c)
+                If pipeIdx >= 0 AndAlso pipeIdx < baseSource.Length - 1 Then
+                    baseSource = baseSource.Substring(pipeIdx + 1)
+                End If
             End If
 
-            Dim suffixMatch = Regex.Match(txt, "^[\s]*[A-Z]\d+[A-Z0-9]*\s+(AP|MP|EP)", RegexOptions.IgnoreCase)
-            If suffixMatch.Success AndAlso suffixMatch.Groups.Count > 1 Then
-                info.Suffix = NormalizeSuffix(suffixMatch.Groups(1).Value)
-            End If
-
-            info.MaterialToken = ExtractMaterialToken(txt)
+            info.BaseCode = ExtractBaseCode(baseSource)
+            info.IsGroupLike = IsGroupLikeKey(baseSource)
+            info.Variant = ExtractVariantToken(baseSource)
+            info.MaterialTokens = ExtractMaterialTokens(upperRaw)
+            info.Tokens = BuildTokens(withoutRef, info.MaterialTokens, info.BaseCode, info.Variant)
+            info.Normalized = NormalizeForSimilarityTokens(info.Tokens)
             Return info
         End Function
 
-        Private Shared Function ParsePmsSegmentKey(segmentKey As String) As PmsSegmentKeyInfo
-            Dim info As New PmsSegmentKeyInfo With {.PmsKeyRaw = SafeStr(segmentKey)}
-            Dim txt = info.PmsKeyRaw
-            If String.IsNullOrWhiteSpace(txt) Then
-                Return info
-            End If
-
-            Dim work = txt
-            Dim pipeIdx As Integer = work.LastIndexOf("|"c)
-            If pipeIdx >= 0 AndAlso pipeIdx < work.Length - 1 Then
-                work = work.Substring(pipeIdx + 1)
-            End If
-            work = work.Trim()
-
-            Dim parenIdx As Integer = work.IndexOf("("c)
-            Dim basePart As String = If(parenIdx >= 0, work.Substring(0, parenIdx), work)
-            info.BaseCode = basePart.Trim().ToUpperInvariant()
-
-            Dim suffixMatch = Regex.Match(work, "\(\s*(A\.P|M\.P|E\.P)\s*\)", RegexOptions.IgnoreCase)
-            If suffixMatch.Success AndAlso suffixMatch.Groups.Count > 1 Then
-                info.Suffix = NormalizeSuffix(suffixMatch.Groups(1).Value)
-            End If
-
-            info.IsGroupLike = info.BaseCode.Contains("/") OrElse Regex.IsMatch(work, "\([^\)]*\+", RegexOptions.IgnoreCase)
-            info.MaterialToken = ExtractMaterialToken(work)
-            Return info
-        End Function
-
-        Private Shared Function NormalizeSuffix(token As String) As String
-            If String.IsNullOrWhiteSpace(token) Then
-                Return String.Empty
-            End If
-            Dim upper = token.ToUpperInvariant().Replace(".", String.Empty)
-            Select Case upper
-                Case "AP"
-                    Return "A.P"
-                Case "MP"
-                    Return "M.P"
-                Case "EP"
-                    Return "E.P"
-                Case Else
-                    Return token.ToUpperInvariant().Trim()
-            End Select
-        End Function
-
-        Private Shared Function ExtractMaterialToken(text As String) As String
+        Private Shared Function NormalizeVariantMarkers(text As String) As String
             If String.IsNullOrWhiteSpace(text) Then
                 Return String.Empty
             End If
-            Dim m = Regex.Match(text, "STS\s*\d+[A-Z]*", RegexOptions.IgnoreCase)
-            If m.Success Then
-                Return NormalizeMaterialToken(m.Value)
+            Dim work = text
+            work = Regex.Replace(work, "\(\s*A\.?P\.?\s*\)", " AP ", RegexOptions.IgnoreCase)
+            work = Regex.Replace(work, "\(\s*M\.?P\.?\s*\)", " MP ", RegexOptions.IgnoreCase)
+            work = Regex.Replace(work, "\(\s*E\.?P\.?\s*\)", " EP ", RegexOptions.IgnoreCase)
+            work = Regex.Replace(work, "\bA\.?P\.?\b", " AP ", RegexOptions.IgnoreCase)
+            work = Regex.Replace(work, "\bM\.?P\.?\b", " MP ", RegexOptions.IgnoreCase)
+            work = Regex.Replace(work, "\bE\.?P\.?\b", " EP ", RegexOptions.IgnoreCase)
+            Return work
+        End Function
+
+        Private Shared Function ExtractBaseCode(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+            Dim m = Regex.Match(text, "^\s*([A-Z]\d+[A-Z0-9]*)", RegexOptions.IgnoreCase)
+            If m.Success AndAlso m.Groups.Count > 1 Then
+                Return m.Groups(1).Value.ToUpperInvariant()
             End If
             Return String.Empty
+        End Function
+
+        Private Shared Function ExtractVariantToken(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then
+                Return String.Empty
+            End If
+            Dim normalized = NormalizeVariantMarkers(text)
+            Dim m = Regex.Match(normalized, "\b(AP|MP|EP)\b", RegexOptions.IgnoreCase)
+            If m.Success AndAlso m.Groups.Count > 1 Then
+                Return m.Groups(1).Value.ToUpperInvariant()
+            End If
+            Return String.Empty
+        End Function
+
+        Private Shared Function ExtractMaterialTokens(text As String) As HashSet(Of String)
+            Dim result As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            If String.IsNullOrWhiteSpace(text) Then
+                Return result
+            End If
+            For Each m As Match In Regex.Matches(text, "STS\s*\d+[A-Z]*", RegexOptions.IgnoreCase)
+                Dim norm = NormalizeMaterialToken(m.Value)
+                If Not String.IsNullOrWhiteSpace(norm) Then
+                    result.Add(norm)
+                End If
+            Next
+            Return result
         End Function
 
         Private Shared Function NormalizeMaterialToken(token As String) As String
@@ -650,65 +668,123 @@ Namespace Services
             Return normalized
         End Function
 
-        Private Shared Function ComputeStructuredScore(revitInfo As RevitSegmentKeyInfo,
-                                                       normRevit As String,
-                                                       pmsInfo As PmsSegmentKeyInfo,
-                                                       normPms As String) As CandidateScore
-            Dim structural As Double = 0
-
-            If Not String.IsNullOrWhiteSpace(revitInfo.BaseCode) AndAlso Not String.IsNullOrWhiteSpace(pmsInfo.BaseCode) AndAlso
-               revitInfo.BaseCode.Equals(pmsInfo.BaseCode, StringComparison.OrdinalIgnoreCase) Then
-                structural += 80
-            End If
-
-            If Not String.IsNullOrWhiteSpace(revitInfo.Suffix) Then
-                If Not String.IsNullOrWhiteSpace(pmsInfo.Suffix) Then
-                    If revitInfo.Suffix.Equals(pmsInfo.Suffix, StringComparison.OrdinalIgnoreCase) Then
-                        structural += 60
-                    Else
-                        structural -= 120
+        Private Shared Function BuildTokens(text As String,
+                                            materialTokens As HashSet(Of String),
+                                            baseCode As String,
+                                            variant As String) As HashSet(Of String)
+            Dim tokens As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            If Not String.IsNullOrWhiteSpace(text) Then
+                Dim cleaned = Regex.Replace(text, "[\.,/\\\|\(\)\[\]:\-\+]", " ")
+                cleaned = Regex.Replace(cleaned, "\s+", " ").Trim()
+                For Each raw In cleaned.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
+                    Dim t = raw.Trim()
+                    If t.Length > 0 Then
+                        tokens.Add(t)
                     End If
-                Else
-                    structural -= 80
-                End If
-            Else
-                If String.IsNullOrWhiteSpace(pmsInfo.Suffix) Then
-                    structural += 25
-                Else
-                    structural -= 30
-                End If
+                Next
             End If
-
-            Dim revMat = NormalizeMaterialToken(revitInfo.MaterialToken)
-            Dim pmsMat = NormalizeMaterialToken(pmsInfo.MaterialToken)
-            If Not String.IsNullOrWhiteSpace(revMat) AndAlso revMat.Equals(pmsMat, StringComparison.OrdinalIgnoreCase) Then
-                structural += 10
+            If Not String.IsNullOrWhiteSpace(baseCode) Then
+                tokens.Add(baseCode)
             End If
-
-            If pmsInfo.IsGroupLike Then
-                structural -= 40
+            If Not String.IsNullOrWhiteSpace(variant) Then
+                tokens.Add(variant)
             End If
-
-            Dim similarity = ComputeSimilarityBoost(normRevit, normPms)
-            Dim total = structural + similarity
-            Dim lenDiff = Math.Abs(normRevit.Length - normPms.Length)
-
-            Return New CandidateScore With {
-                .Structural = structural,
-                .Similarity = similarity,
-                .Score = total,
-                .LenDiff = lenDiff
-            }
+            If materialTokens IsNot Nothing Then
+                For Each m In materialTokens
+                    tokens.Add(m)
+                Next
+            End If
+            Return tokens
         End Function
 
-        Private Shared Function NormalizeForSimilarity(text As String) As String
-            If String.IsNullOrWhiteSpace(text) Then
+        Private Shared Function NormalizeForSimilarityTokens(tokens As HashSet(Of String)) As String
+            If tokens Is Nothing OrElse tokens.Count = 0 Then
                 Return String.Empty
             End If
-            Dim upper = text.ToUpperInvariant()
-            Dim cleaned = Regex.Replace(upper, "[\s\._\-\(\)\+\/\|:]+", String.Empty)
-            cleaned = Regex.Replace(cleaned, "\s+", String.Empty)
-            Return cleaned.Trim()
+            Dim ordered = tokens.Where(Function(t) Not String.IsNullOrWhiteSpace(t)).Select(Function(t) t.ToUpperInvariant()).OrderBy(Function(t) t)
+            Return String.Join(String.Empty, ordered)
+        End Function
+
+        Private Shared Function IsGroupLikeKey(text As String) As Boolean
+            If String.IsNullOrWhiteSpace(text) Then
+                Return False
+            End If
+            Return Regex.IsMatch(text, "[/\\+]", RegexOptions.IgnoreCase)
+        End Function
+
+        Private Shared Function ContainsBaseToken(pmsRaw As String, baseCode As String) As Boolean
+            If String.IsNullOrWhiteSpace(pmsRaw) OrElse String.IsNullOrWhiteSpace(baseCode) Then
+                Return False
+            End If
+            Dim compact = Regex.Replace(pmsRaw.ToUpperInvariant(), "[^A-Z0-9]", String.Empty)
+            If compact.Contains(baseCode.ToUpperInvariant()) Then
+                Return True
+            End If
+            For Each m As Match In Regex.Matches(pmsRaw, "[A-Z]\d+[A-Z0-9]*", RegexOptions.IgnoreCase)
+                If m.Success AndAlso baseCode.Equals(m.Value, StringComparison.OrdinalIgnoreCase) Then
+                    Return True
+                End If
+            Next
+            Return False
+        End Function
+
+        Private Shared Function ComputeTokenScore(revitInfo As SegmentTokenInfo, pmsInfo As SegmentTokenInfo) As Double
+            If revitInfo Is Nothing OrElse pmsInfo Is Nothing Then
+                Return 0
+            End If
+            Dim commonGeneral As Integer = 0
+            Dim commonMaterial As Integer = 0
+            For Each t In revitInfo.Tokens
+                If pmsInfo.Tokens.Contains(t) Then
+                    Dim isMaterial = (revitInfo.MaterialTokens IsNot Nothing AndAlso revitInfo.MaterialTokens.Contains(t)) OrElse
+                                     (pmsInfo.MaterialTokens IsNot Nothing AndAlso pmsInfo.MaterialTokens.Contains(t))
+                    If isMaterial Then
+                        commonMaterial += 1
+                    Else
+                        commonGeneral += 1
+                    End If
+                End If
+            Next
+            Return commonGeneral * 5 + commonMaterial * 2
+        End Function
+
+        Private Shared Function ComputeCandidateScore(revitInfo As SegmentTokenInfo, pmsInfo As SegmentTokenInfo) As CandidateScore
+            Dim baseScore As Double = 0
+            Dim variantScore As Double = 0
+            Dim notes As New List(Of String)()
+
+            If Not String.IsNullOrWhiteSpace(revitInfo.BaseCode) Then
+                If Not String.IsNullOrWhiteSpace(pmsInfo.BaseCode) AndAlso revitInfo.BaseCode.Equals(pmsInfo.BaseCode, StringComparison.OrdinalIgnoreCase) Then
+                    baseScore = If(pmsInfo.IsGroupLike, 40, 100)
+                    notes.Add(String.Format("base:{0}", revitInfo.BaseCode))
+                ElseIf ContainsBaseToken(pmsInfo.Raw, revitInfo.BaseCode) Then
+                    baseScore = 40
+                    notes.Add(String.Format("group:{0}", revitInfo.BaseCode))
+                End If
+            End If
+
+            If Not String.IsNullOrWhiteSpace(revitInfo.Variant) Then
+                If Not String.IsNullOrWhiteSpace(pmsInfo.Variant) AndAlso revitInfo.Variant.Equals(pmsInfo.Variant, StringComparison.OrdinalIgnoreCase) Then
+                    variantScore = 80
+                    notes.Add(String.Format("variant:{0}", revitInfo.Variant))
+                End If
+            End If
+
+            Dim tokenScore = ComputeTokenScore(revitInfo, pmsInfo)
+            Dim similarity = ComputeSimilarityBoost(revitInfo.Normalized, pmsInfo.Normalized)
+            Dim total = baseScore + variantScore + tokenScore + similarity
+            Dim lenDiff = Math.Abs(revitInfo.Normalized.Length - pmsInfo.Normalized.Length)
+            Dim detail = String.Join(" + ", notes)
+
+            Return New CandidateScore With {
+                .BaseScore = baseScore,
+                .VariantScore = variantScore,
+                .TokenScore = tokenScore,
+                .Similarity = similarity,
+                .Score = total,
+                .LenDiff = lenDiff,
+                .Detail = detail
+            }
         End Function
 
         Private Shared Function ComputeSimilarityBoost(a As String, b As String) As Double
@@ -1465,22 +1541,22 @@ Namespace Services
 
             For Each r As DataRow In compareTable.Rows
                 Dim item As New Dictionary(Of String, Object)(StringComparer.OrdinalIgnoreCase) From {
-                    {"File", SafeFileName(If(hasFile, SafeStr(r("File")), String.Empty))},
+                    {"FileName", SafeFileName(If(hasFile, SafeStr(r("File")), String.Empty))},
                     {"PipeType", If(hasPipeType, SafeStr(r("PipeTypeName")), String.Empty)},
-                    {"Revit Segment", If(hasRevSeg, SafeStr(r("RevitSegmentKey")), String.Empty)},
-                    {"PMS Segment", If(hasPmsSeg, SafeStr(r("PMS_SegmentKey")), String.Empty)},
+                    {"RevitSegment", If(hasRevSeg, SafeStr(r("RevitSegmentKey")), String.Empty)},
+                    {"PMSCompared", If(hasPmsSeg, SafeStr(r("PMS_SegmentKey")), String.Empty)},
                     {"ND", If(hasNd AndAlso Not r.IsNull("ND_mm"), r("ND_mm"), Nothing)},
                     {"ID", If(hasRevId AndAlso Not r.IsNull("Revit_ID"), r("Revit_ID"), Nothing)},
                     {"OD", If(hasRevOd AndAlso Not r.IsNull("Revit_OD"), r("Revit_OD"), Nothing)},
-                    {"PMS_ND", If(hasPmsNd AndAlso Not r.IsNull("PMS_ND"), r("PMS_ND"), Nothing)},
-                    {"PMS_ID", If(hasPmsId AndAlso Not r.IsNull("PMS_ID"), r("PMS_ID"), Nothing)},
-                    {"PMS_OD", If(hasPmsOd AndAlso Not r.IsNull("PMS_OD"), r("PMS_OD"), Nothing)},
+                    {"PMS ND", If(hasPmsNd AndAlso Not r.IsNull("PMS_ND"), r("PMS_ND"), Nothing)},
+                    {"PMS ID", If(hasPmsId AndAlso Not r.IsNull("PMS_ID"), r("PMS_ID"), Nothing)},
+                    {"PMS OD", If(hasPmsOd AndAlso Not r.IsNull("PMS_OD"), r("PMS_OD"), Nothing)},
                     {"Result", MapSizeStatus(If(hasStatus, SafeStr(r("Status")), String.Empty))}
                 }
                 list.Add(item)
             Next
 
-            Return list.OrderBy(Function(x) SafeStr(x("File"))).
+            Return list.OrderBy(Function(x) SafeStr(x("FileName"))).
                         ThenBy(Function(x) SafeStr(x("PipeType"))).
                         ThenBy(Function(x) SafeStr(x("ND"))).ToList()
         End Function
@@ -2136,9 +2212,9 @@ Namespace Services
                     File.Delete(tmpPath)
                 End If
 
-                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
-                    wb.Write(fs)
-                    fs.Flush()
+                Using ms As New MemoryStream()
+                    wb.Write(ms)
+                    File.WriteAllBytes(tmpPath, ms.ToArray())
                 End Using
 
                 Try
