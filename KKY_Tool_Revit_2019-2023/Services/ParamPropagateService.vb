@@ -163,6 +163,18 @@ Namespace Services
 
     End Module
 
+    Friend Module ProgressMessageHelper
+        Friend Function MakePhaseError(phase As String, famName As String, famId As ElementId, message As String) As String
+            Dim idVal As Integer = 0
+            Try
+                If famId IsNot Nothing Then idVal = famId.IntegerValue
+            Catch
+                idVal = 0
+            End Try
+            Return $"[{phase}] Family='{famName}' (Id:{idVal}) - {message}"
+        End Function
+    End Module
+
     '==================== 파라미터 선택 폼 ====================
     Friend Class FormSharedParamPicker
         Inherits WinForms.Form
@@ -870,27 +882,19 @@ Namespace Services
                                             reporter As ProgressDispatcher) As RunStatus
 
             ' 1. 편집 가능한 모든 패밀리 수집 (프로젝트 문서 기준)
-            Dim allEditable As List(Of Family) =
+            Dim allEditableIds As List(Of ElementId) =
                 New FilteredElementCollector(doc).
                 OfClass(GetType(Family)).
-                Cast(Of Family)().
-                Where(Function(f) f.IsEditable).
+                Where(Function(f) CType(f, Family).IsEditable).
+                ToElementIds().
                 ToList()
 
-            Dim totalEditableCount As Integer = allEditable.Count
+            Dim totalEditableCount As Integer = allEditableIds.Count
             Dim scanIndex As Integer = 0
             reporter.Report("COLLECT", 0.0R, 0, totalEditableCount, "패밀리 스캔 준비", String.Empty, True)
 
             ' 이름 → Family 매핑 (Id 는 Doc별이라 안씀)
-            Dim nameToFamily As New Dictionary(Of String, Family)(StringComparer.OrdinalIgnoreCase)
-            For Each f In allEditable
-                If f Is Nothing OrElse f.FamilyCategory Is Nothing Then Continue For
-                If IsAnnotationFamily(f) Then Continue For
-
-                If Not nameToFamily.ContainsKey(f.Name) Then
-                    nameToFamily.Add(f.Name, f)
-                End If
-            Next
+            Dim nameToFamilyId As New Dictionary(Of String, ElementId)(StringComparer.OrdinalIgnoreCase)
 
             ' 부모이름 → 자식이름 그래프 (공유 체크된 하위만)
             Dim parentToChildren As New Dictionary(Of String, HashSet(Of String))(StringComparer.OrdinalIgnoreCase)
@@ -901,9 +905,19 @@ Namespace Services
             Dim scanFails As New List(Of String)()
 
             '----- 1차 스캔: 그래프 구성 -----
-            For Each f In allEditable
+            For Each famId As ElementId In allEditableIds
+                Dim f As Family = Nothing
+                Try
+                    f = TryCast(doc.GetElement(famId), Family)
+                Catch
+                End Try
                 If f.FamilyCategory Is Nothing Then Continue For
                 If IsAnnotationFamily(f) Then Continue For
+
+                Dim famName As String = f.Name
+                If Not nameToFamilyId.ContainsKey(famName) Then
+                    nameToFamilyId.Add(famName, fam.Id)
+                End If
 
                 Dim hostDoc As Document = Nothing
                 Try
@@ -973,13 +987,7 @@ Namespace Services
             Next
 
             ' 복합 패밀리(상위) 목록 (리포트용)
-            Dim compositeFamilies As New List(Of Family)()
-            For Each pname In parentToChildren.Keys
-                Dim fam As Family = Nothing
-                If nameToFamily.TryGetValue(pname, fam) Then
-                    compositeFamilies.Add(fam)
-                End If
-            Next
+            Dim compositeFamilyNames As New List(Of String)(parentToChildren.Keys)
 
             '----- 2. 그래프를 하위 → 상위 순으로 정렬 (DFS, 이름 기준) -----
             Dim order As New List(Of String)()
@@ -1027,6 +1035,7 @@ Namespace Services
             Dim skips As New List(Of String)()
             Dim compositeSuccessCount As Integer = 0
             Dim applyIndex As Integer = 0
+            Dim lastErrorMessage As String = String.Empty
             reporter.Report("APPLY", 0.0R, 0, totalToProcess, "파라미터 적용 준비", String.Empty, True)
 
             Using tgAll As New TransactionGroup(doc, "KKY Shared Param Propagate")
@@ -1034,32 +1043,47 @@ Namespace Services
                 Try
                     ' order: 하위 → 상위. leaf(A-6) 먼저 처리.
                     For Each famName In order
+                        Dim famId As ElementId = Nothing
+                        If Not nameToFamilyId.TryGetValue(famName, famId) Then Continue For
                         Dim fam As Family = Nothing
-                        If Not nameToFamily.TryGetValue(famName, fam) Then Continue For
+                        Try
+                            fam = TryCast(doc.GetElement(famId), Family)
+                        Catch
+                            fam = Nothing
+                        End Try
+                        If fam Is Nothing Then
+                            lastErrorMessage = MakePhaseError("APPLY", famName, famId, "패밀리를 찾을 수 없습니다.")
+                            Continue For
+                        End If
 
                         Dim isParent As Boolean = parentToChildren.ContainsKey(famName)
                         Dim isChild As Boolean = childNames.Contains(famName)
 
-                        ProcessFamilyBottomUp(doc,
-                                              fam,
-                                              extDefs,
-                                              paramNames,
-                                              parentToChildren,
-                                              excludeDummy,
-                                              chosenIsInstance,
-                                              chosenPG,
-                                              isParent,
-                                              isChild,
-                                              addedHost,
-                                              addedChild,
-                                              linkCnt,
-                                              verifyOk,
-                                              verifyFail,
-                                              skipTotal,
-                                              parentFails,
-                                              childFails,
-                                              skips,
-                                              compositeSuccessCount)
+                        Try
+                            ProcessFamilyBottomUp(doc,
+                                                  fam,
+                                                  extDefs,
+                                                  paramNames,
+                                                  parentToChildren,
+                                                  excludeDummy,
+                                                  chosenIsInstance,
+                                                  chosenPG,
+                                                  isParent,
+                                                  isChild,
+                                                  addedHost,
+                                                  addedChild,
+                                                  linkCnt,
+                                                  verifyOk,
+                                                  verifyFail,
+                                                  skipTotal,
+                                                  parentFails,
+                                                  childFails,
+                                                  skips,
+                                                  compositeSuccessCount)
+                        Catch ex As Exception
+                            lastErrorMessage = MakePhaseError("APPLY", famName, famId, ex.Message)
+                            Throw
+                        End Try
 
                         applyIndex += 1
                         reporter.Report("APPLY",
@@ -1086,7 +1110,7 @@ Namespace Services
 
             '----- 4. 리포트 구성 -----
             Dim header As New StringBuilder()
-            header.AppendLine($"패밀리 스캔: {totalEditableCount}개 / 복합 패밀리: {compositeFamilies.Count}개 / 성공: {compositeSuccessCount}개")
+            header.AppendLine($"패밀리 스캔: {totalEditableCount}개 / 복합 패밀리: {compositeFamilyNames.Count}개 / 성공: {compositeSuccessCount}개")
             header.AppendLine($"하위 패밀리 파라미터 추가: {addedChild}")
             header.AppendLine($"복합 패밀리 파라미터 추가/교정: {addedHost}")
             header.AppendLine($"파라미터 연동 성공 카운트: {linkCnt}")
@@ -1125,6 +1149,9 @@ Namespace Services
             result.Report = header.ToString()
             result.Details = BuildDetails(scanLines, skipLines, failLines, childFails)
             reporter.Report("DONE", 1.0R, applyIndex, totalToProcess, "완료", String.Empty, True)
+            If String.IsNullOrWhiteSpace(result.Message) AndAlso Not String.IsNullOrWhiteSpace(lastErrorMessage) Then
+                result.Message = lastErrorMessage
+            End If
             Return RunStatus.Succeeded
         End Function
 
@@ -1154,6 +1181,7 @@ Namespace Services
             If IsAnnotationFamily(fam) Then Return
 
             Dim famName As String = fam.Name
+            Dim famIdVal As Integer = fam.Id.IntegerValue
             Dim hasChildren As Boolean = parentToChildren.ContainsKey(famName)
 
             Dim famDoc As Document = Nothing
@@ -1313,10 +1341,11 @@ Namespace Services
             Catch ex As Exception
                 ok = False
                 If Not IsNoTxnNoise(ex.Message) Then
+                    Dim failMsg As String = MakePhaseError("APPLY", famName, fam.Id, ex.Message)
                     If isParent Then
-                        parentFails.Add(famName)
+                        parentFails.Add(failMsg)
                     ElseIf isChild Then
-                        childFails.Add(famName)
+                        childFails.Add(failMsg)
                     End If
                 End If
             Finally
