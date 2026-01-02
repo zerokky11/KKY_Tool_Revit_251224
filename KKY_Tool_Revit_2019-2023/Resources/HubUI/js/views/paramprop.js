@@ -1,14 +1,13 @@
 // Resources/HubUI/js/views/paramprop.js
 import { clear, div, toast, setBusy, showExcelSavedDialog, debounce } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
 import { post, onHost } from '../core/bridge.js';
 
 const DEFAULT_GUIDE = '공유 파라미터 연동을 실행하면 결과가 이곳에 표시됩니다.';
 
-export function renderParamProp() {
-    const root = document.getElementById('app');
-    clear(root);
-    renderTopbar(root, true, () => { location.hash = ''; });
+export function renderParamProp(root) {
+    const target = root || document.getElementById('view-root') || document.getElementById('app');
+    clear(target);
+    const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
 
     const state = {
         defs: [],
@@ -153,7 +152,7 @@ export function renderParamProp() {
     resultCard.append(resultTitle, reportBox, filterRow, detailWrap);
 
     layout.append(pickerCard, resultCard);
-    root.append(page);
+    target.append(page);
 
     // 이벤트/호스트 응답
     onHost('sharedparam:list', handleList);

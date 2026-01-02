@@ -182,7 +182,7 @@ Namespace Services
                     doc = appObj.OpenDocumentFile(mp, opt)
 
                     If progress IsNot Nothing Then
-                        progress(totalCount, fileIndex, "segment", "Segment 후보 수집 중", p)
+                        progress(totalCount, fileIndex, "extract", "Segment 후보 수집 중", p)
                     End If
                     Dim fileRow = fileTable.NewRow()
                     fileRow("File") = p
@@ -191,7 +191,7 @@ Namespace Services
                     fileTable.Rows.Add(fileRow)
 
                     If progress IsNot Nothing Then
-                        progress(totalCount, fileIndex, "routing", "RoutingPreference 수집 중", p)
+                        progress(totalCount, fileIndex, "route", "RoutingPreference 수집 중", p)
                     End If
                     Dim routingInfos = CollectRouting(doc, p)
                     For Each info In routingInfos
@@ -240,7 +240,7 @@ Namespace Services
                     Next
 
                     If progress IsNot Nothing Then
-                        progress(totalCount, fileIndex, "finish", "파일 처리 완료", p)
+                        progress(totalCount, fileIndex, "done", "파일 처리 완료", p)
                     End If
                 Catch
                     ' 개별 파일 오류는 누적하지 않고 건너뜀

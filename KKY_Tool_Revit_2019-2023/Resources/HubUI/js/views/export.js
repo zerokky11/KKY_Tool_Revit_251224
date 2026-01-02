@@ -1,5 +1,4 @@
 import { clear, div, tdText, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
 import { post, onHost } from '../core/bridge.js';
 
 const state = { files: [], rowsRaw: [], folder: '', unit: 'ft' };
@@ -13,9 +12,9 @@ const HEADERS = [
   { key: 'SurveyPoint_Z(mm)', label: 'Elev', group: 'survey' }
 ];
 
-export function renderExport() {
-    const root = document.getElementById('app'); clear(root);
-    renderTopbar(root, true, () => { location.hash = ''; });
+export function renderExport(root) {
+    const target = root || document.getElementById('view-root') || document.getElementById('app'); clear(target);
+    const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
 
     const page = div('feature-shell');
 
@@ -73,7 +72,7 @@ export function renderExport() {
     right.append(tbl);
     wrap.append(left, right);
     page.append(wrap);
-    root.append(page);
+    target.append(page);
 
     // === 파일 선택 응답 ===
     onHost('export:files', ({ files, folder }) => {

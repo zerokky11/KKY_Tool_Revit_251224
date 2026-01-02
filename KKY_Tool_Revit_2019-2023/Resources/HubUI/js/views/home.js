@@ -1,6 +1,5 @@
 // Resources/HubUI/js/views/home.js
 import { clear, div, debounce, toast } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
 import { getFavs, toggleFav, getLast, saveCardOrder, getCardOrder } from '../core/state.js';
 
 const CATS = { dup: '검토', conn: '진단', export: '좌표', paramprop: '속성', segmentpms: '속성' };
@@ -61,9 +60,9 @@ const TOTAL_FEATURES = Object.keys(FEATURE_META).length;
 
 const STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4.5l2.3 4.9 5.4.8-3.9 3.9.9 5.4L12 16.8 7.3 19.5l.9-5.4-3.9-3.9 5.4-.8Z" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.6"/></svg>';
 
-export function renderHome() {
-    const root = document.getElementById('app'); clear(root);
-    renderTopbar(root, false);
+export function renderHome(root) {
+    const target = root || document.getElementById('view-root') || document.getElementById('app');
+    clear(target);
 
     const view = div('home-view');
     view.dataset.layout = 'card';
@@ -120,7 +119,7 @@ export function renderHome() {
     baseOrder.forEach(appendFeature);
 
     view.append(grid, iconPanel, empty);
-    root.append(view);
+    target.append(view);
 
     const q = controls.input;
     const segCard = controls.segCard;

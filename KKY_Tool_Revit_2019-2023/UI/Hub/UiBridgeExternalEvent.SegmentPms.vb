@@ -310,11 +310,11 @@ Namespace UI.Hub
                     ReportProgress(files.Count, 0, "open", "추출 시작", String.Empty)
                     _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts, AddressOf ReportProgress)
                     _lastExtractPath = dlg.FileName
-                    ReportProgress(files.Count, files.Count, "excel", "엑셀 저장 중", dlg.FileName)
+                    ReportProgress(files.Count, files.Count, "save", "엑셀 저장 중", dlg.FileName)
                     SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
                     WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
-                    ReportProgress(files.Count, files.Count, "finish", "추출 완료", dlg.FileName)
+                    ReportProgress(files.Count, files.Count, "done", "추출 완료", dlg.FileName)
                     SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName, .summary = summary})
                 Catch ex As Exception
                     ReportProgress(files.Count, files.Count, "error", ex.Message, String.Empty)
@@ -860,13 +860,13 @@ Namespace UI.Hub
             Select Case (If(stage, String.Empty).ToLowerInvariant())
                 Case "open"
                     stepFraction = 0.0R
-                Case "segment"
+                Case "extract"
                     stepFraction = 0.33R
-                Case "routing"
+                Case "route"
                     stepFraction = 0.66R
-                Case "excel"
+                Case "save"
                     stepFraction = 0.9R
-                Case "finish"
+                Case "finish", "done"
                     stepFraction = 1.0R
                 Case "error"
                     stepFraction = 1.0R

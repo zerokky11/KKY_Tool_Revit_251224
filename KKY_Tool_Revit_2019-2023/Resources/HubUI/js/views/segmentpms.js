@@ -1,5 +1,5 @@
 import { clear, div, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
+import { setTopbarProgress } from '../core/topbar.js';
 import { post, onHost } from '../core/bridge.js';
 
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
@@ -18,9 +18,10 @@ function saveRvtList(list) {
   localStorage.setItem(LS_RVT_LIST, JSON.stringify(list || []));
 }
 
-export function renderSegmentPms() {
-  const root = document.getElementById('app'); clear(root);
-  renderTopbar(root, true); const top = root.firstElementChild; if (top) top.classList.add('hub-topbar');
+export function renderSegmentPms(root) {
+  const target = root || document.getElementById('view-root') || document.getElementById('app');
+  clear(target);
+  const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
 
   const state = {
     rvtList: loadRvtList(),
@@ -44,18 +45,6 @@ export function renderSegmentPms() {
   heading.innerHTML = `<span class="feature-kicker">PipeType - PMS</span><h2 class="feature-title">Segment 매핑/검증</h2><p class="feature-sub">추출(Excel)과 PMS를 분리하여 그룹 단위 매핑 후 비교합니다.</p>`;
   header.append(heading);
   page.append(header);
-
-  /* Progress bar */
-  const progWrap = document.createElement('div'); progWrap.id = 'segpms-progress'; progWrap.className = 'segpms-progress hidden';
-  const progTop = document.createElement('div'); progTop.className = 'segpms-progress-top';
-  const progText = document.createElement('div'); progText.className = 'segpms-progress-text'; progText.id = 'segpms-progress-text';
-  const progPct = document.createElement('div'); progPct.className = 'segpms-progress-pct'; progPct.id = 'segpms-progress-pct';
-  progTop.append(progText, progPct);
-  const progBar = document.createElement('div'); progBar.className = 'segpms-progress-bar';
-  const progFill = document.createElement('div'); progFill.className = 'segpms-progress-fill'; progFill.id = 'segpms-progress-fill'; progFill.style.width = '0%';
-  progBar.append(progFill);
-  progWrap.append(progTop, progBar);
-  page.append(progWrap);
 
   /* Extract section */
   const extractSection = div('section segmentpms-extract');
@@ -108,7 +97,7 @@ export function renderSegmentPms() {
   checkSection.append(resInfo);
   page.append(checkSection);
 
-  root.append(page);
+  target.append(page);
 
   renderRvtList();
   updateButtons();
@@ -147,7 +136,7 @@ export function renderSegmentPms() {
   function onExtract() {
     const targets = state.rvtList.filter(p => state.rvtChecked.has(p));
     if (!targets.length) { toast('추출할 RVT를 선택하세요.', 'err'); return; }
-    setBusy(true, '추출 중'); state.busy = true; updateButtons();
+    state.busy = true; updateButtons();
     post('segmentpms:extract', { files: targets });
   }
 
@@ -320,6 +309,7 @@ export function renderSegmentPms() {
         break;
       case 'segmentpms:error':
         setBusy(false); state.busy = false;
+        setTopbarProgress(null);
         toast(msg.payload?.message || '오류가 발생했습니다.', 'err');
         updateButtons();
         break;
@@ -342,32 +332,23 @@ function buildSuggestionMap(list) {
 }
 
 function handleProgress(payload) {
-  const wrap = document.getElementById('segpms-progress');
-  const text = document.getElementById('segpms-progress-text');
-  const pctEl = document.getElementById('segpms-progress-pct');
-  const fill = document.getElementById('segpms-progress-fill');
-  if (!wrap || !text || !pctEl || !fill) return;
-
+  if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
+  if (!payload) { setTopbarProgress(null); return; }
   const total = Number(payload.total) || 0;
   const index = Number(payload.index) || 0;
   const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
-  const file = payload.file || '';
   const stage = (payload.stage || '').toLowerCase();
-  const message = payload.message || '';
-
-  wrap.classList.remove('hidden');
-  fill.style.width = `${percent}%`;
-  pctEl.textContent = `${percent}%`;
-  text.textContent = `(${index}/${total || '?'}) ${file} - ${message}`;
-
-  if (stage === 'finish') {
-    text.textContent = `(${total}/${total}) ${file || '완료'} - 완료`;
-    fill.style.width = '100%';
-    pctEl.textContent = '100%';
-    if (progressHideTimer) clearTimeout(progressHideTimer);
-    progressHideTimer = setTimeout(() => wrap.classList.add('hidden'), 1500);
+  setTopbarProgress({
+    total,
+    index,
+    percent,
+    file: payload.file || '',
+    message: payload.message || ''
+  });
+  if (stage === 'finish' || stage === 'done') {
+    progressHideTimer = setTimeout(() => setTopbarProgress(null), 1500);
   } else if (stage === 'error') {
-    if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
+    setTopbarProgress(null);
   }
 }
 
