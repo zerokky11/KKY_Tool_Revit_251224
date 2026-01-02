@@ -307,13 +307,17 @@ Namespace UI.Hub
 
                 Try
                     _segmentPmsLastResult = Nothing
-                    _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts)
+                    ReportProgress(files.Count, 0, "open", "추출 시작", String.Empty)
+                    _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts, AddressOf ReportProgress)
                     _lastExtractPath = dlg.FileName
+                    ReportProgress(files.Count, files.Count, "excel", "엑셀 저장 중", dlg.FileName)
                     SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
                     WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
+                    ReportProgress(files.Count, files.Count, "finish", "추출 완료", dlg.FileName)
                     SendToWeb("segmentpms:extract-saved", New With {.path = dlg.FileName, .summary = summary})
                 Catch ex As Exception
+                    ReportProgress(files.Count, files.Count, "error", ex.Message, String.Empty)
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
             End Using
@@ -850,6 +854,46 @@ Namespace UI.Hub
                 Return (If(obj.Item1, String.Empty).ToLowerInvariant().GetHashCode() Xor (If(obj.Item2, String.Empty).ToLowerInvariant().GetHashCode() << 3))
             End Function
         End Class
+
+        Private Sub ReportProgress(total As Integer, index As Integer, stage As String, message As String, filePath As String)
+            Dim stepFraction As Double
+            Select Case (If(stage, String.Empty).ToLowerInvariant())
+                Case "open"
+                    stepFraction = 0.0R
+                Case "segment"
+                    stepFraction = 0.33R
+                Case "routing"
+                    stepFraction = 0.66R
+                Case "excel"
+                    stepFraction = 0.9R
+                Case "finish"
+                    stepFraction = 1.0R
+                Case "error"
+                    stepFraction = 1.0R
+                Case Else
+                    stepFraction = 0.0R
+            End Select
+            Dim safeTotal As Integer = Math.Max(1, Math.Max(total, 1))
+            Dim baseIdx As Integer = Math.Max(0, index - 1)
+            Dim ratio As Double = (baseIdx + stepFraction) / safeTotal
+            Dim pct As Integer = CInt(Math.Max(0, Math.Min(100, Math.Floor(ratio * 100))))
+            Dim fileName As String = String.Empty
+            If Not String.IsNullOrWhiteSpace(filePath) Then
+                Try
+                    fileName = Path.GetFileName(filePath)
+                Catch
+                    fileName = filePath
+                End Try
+            End If
+            SendToWeb("segmentpms:progress", New With {
+                .total = total,
+                .index = Math.Max(0, index),
+                .percent = pct,
+                .file = fileName,
+                .stage = stage,
+                .message = message
+            })
+        End Sub
 
     End Class
 

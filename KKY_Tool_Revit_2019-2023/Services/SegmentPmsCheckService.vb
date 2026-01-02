@@ -118,7 +118,10 @@ Namespace Services
         ' ---------------------------
         ' Extract stage
         ' ---------------------------
-        Public Shared Function ExtractToDataSet(app As UIApplication, files As IEnumerable(Of String), options As ExtractOptions) As DataSet
+        Public Shared Function ExtractToDataSet(app As UIApplication,
+                                                files As IEnumerable(Of String),
+                                                options As ExtractOptions,
+                                                Optional progress As Action(Of Integer, Integer, String, String, String) = Nothing) As DataSet
             Dim ds As New DataSet()
             Dim meta = BuildMetaTable()
             Dim fileTable = BuildFileTable()
@@ -160,20 +163,36 @@ Namespace Services
                 Return ds
             End If
 
+            Dim totalCount As Integer = valid.Count
+            If progress IsNot Nothing Then
+                progress(totalCount, 0, "open", "추출 시작", String.Empty)
+            End If
+
             Dim appObj = app.Application
-            For Each p As String In valid
+            For i As Integer = 0 To valid.Count - 1
+                Dim p As String = valid(i)
+                Dim fileIndex As Integer = i + 1
                 Dim doc As RvtDB.Document = Nothing
                 Try
+                    If progress IsNot Nothing Then
+                        progress(totalCount, fileIndex, "open", "파일 여는 중", p)
+                    End If
                     Dim opt = BuildOpenOptions(options, p)
                     Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(p)
                     doc = appObj.OpenDocumentFile(mp, opt)
 
+                    If progress IsNot Nothing Then
+                        progress(totalCount, fileIndex, "segment", "Segment 후보 수집 중", p)
+                    End If
                     Dim fileRow = fileTable.NewRow()
                     fileRow("File") = p
                     fileRow("FileName") = Path.GetFileName(p)
                     fileRow("ExtractedAt") = DateTime.Now.ToString("s", CultureInfo.InvariantCulture)
                     fileTable.Rows.Add(fileRow)
 
+                    If progress IsNot Nothing Then
+                        progress(totalCount, fileIndex, "routing", "RoutingPreference 수집 중", p)
+                    End If
                     Dim routingInfos = CollectRouting(doc, p)
                     For Each info In routingInfos
                         Dim row = routing.NewRow()
@@ -219,8 +238,15 @@ Namespace Services
                         sr("OD_mm") = s.OdMm
                         sizes.Rows.Add(sr)
                     Next
+
+                    If progress IsNot Nothing Then
+                        progress(totalCount, fileIndex, "finish", "파일 처리 완료", p)
+                    End If
                 Catch
                     ' 개별 파일 오류는 누적하지 않고 건너뜀
+                    If progress IsNot Nothing Then
+                        progress(totalCount, fileIndex, "error", "파일 처리 중 오류", p)
+                    End If
                 Finally
                     If doc IsNot Nothing Then
                         Try
