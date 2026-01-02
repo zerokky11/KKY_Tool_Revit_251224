@@ -413,7 +413,7 @@ Namespace Services
             Dim rules = extractData.Tables(TableRules)
             For Each r As DataRow In rules.Rows
                 Dim segKey = SafeStr(r("SegmentKey"))
-                Dim norm = NormalizeKey(segKey)
+                Dim norm = NormalizeSegmentGroupKey(segKey)
                 Dim groupKey = If(String.IsNullOrWhiteSpace(norm), segKey, norm)
                 If Not groups.ContainsKey(groupKey) Then
                     groups(groupKey) = New MappingGroup With {
@@ -752,6 +752,7 @@ Namespace Services
             Dim baseScore As Double = 0
             Dim variantScore As Double = 0
             Dim notes As New List(Of String)()
+            Dim penalty As Double = 0
 
             If Not String.IsNullOrWhiteSpace(revitInfo.BaseCode) Then
                 If Not String.IsNullOrWhiteSpace(pmsInfo.BaseCode) AndAlso revitInfo.BaseCode.Equals(pmsInfo.BaseCode, StringComparison.OrdinalIgnoreCase) Then
@@ -767,12 +768,21 @@ Namespace Services
                 If Not String.IsNullOrWhiteSpace(pmsInfo.VariantCode) AndAlso revitInfo.VariantCode.Equals(pmsInfo.VariantCode, StringComparison.OrdinalIgnoreCase) Then
                     variantScore = 80
                     notes.Add(String.Format("variant:{0}", revitInfo.VariantCode))
+                ElseIf String.IsNullOrWhiteSpace(pmsInfo.VariantCode) Then
+                    penalty -= 80
+                Else
+                    penalty -= 160
+                End If
+            Else
+                If Not String.IsNullOrWhiteSpace(pmsInfo.VariantCode) Then
+                    penalty -= 60
                 End If
             End If
 
             Dim tokenScore = ComputeTokenScore(revitInfo, pmsInfo)
             Dim similarity = ComputeSimilarityBoost(revitInfo.Normalized, pmsInfo.Normalized)
-            Dim total = baseScore + variantScore + tokenScore + similarity
+            Dim orderSimilarity = ComputeOrderedSimilarityScore(revitInfo.Raw, pmsInfo.Raw)
+            Dim total = baseScore + variantScore + tokenScore + similarity + orderSimilarity + penalty
             Dim lenDiff = Math.Abs(revitInfo.Normalized.Length - pmsInfo.Normalized.Length)
             Dim detail = String.Join(" + ", notes)
 
@@ -780,7 +790,7 @@ Namespace Services
                 .BaseScore = baseScore,
                 .VariantScore = variantScore,
                 .TokenScore = tokenScore,
-                .Similarity = similarity,
+                .Similarity = similarity + orderSimilarity,
                 .Score = total,
                 .LenDiff = lenDiff,
                 .Detail = detail
@@ -798,6 +808,21 @@ Namespace Services
             End If
             Dim ratio = CDbl(lcs) / CDbl(maxLen)
             Return Math.Max(0, Math.Min(20.0R, ratio * 20.0R))
+        End Function
+
+        Private Shared Function ComputeOrderedSimilarityScore(a As String, b As String) As Double
+            If String.IsNullOrWhiteSpace(a) OrElse String.IsNullOrWhiteSpace(b) Then
+                Return 0
+            End If
+            Dim cleanA = Regex.Replace(a.ToUpperInvariant(), "[^A-Z0-9]+", String.Empty)
+            Dim cleanB = Regex.Replace(b.ToUpperInvariant(), "[^A-Z0-9]+", String.Empty)
+            Dim lcs = LongestCommonSubsequenceLength(cleanA, cleanB)
+            Dim maxLen = Math.Max(cleanA.Length, cleanB.Length)
+            If maxLen = 0 Then
+                Return 0
+            End If
+            Dim ratio = CDbl(lcs) / CDbl(maxLen)
+            Return Math.Max(0, Math.Min(30.0R, ratio * 30.0R))
         End Function
 
         Private Shared Function LongestCommonSubsequenceLength(a As String, b As String) As Integer
@@ -1968,29 +1993,13 @@ Namespace Services
             End Try
         End Function
 
-        Private Shared Function NormalizeKey(key As String) As String
+        Private Shared Function NormalizeSegmentGroupKey(key As String) As String
             If String.IsNullOrWhiteSpace(key) Then
                 Return String.Empty
             End If
-            Dim sb As New StringBuilder()
-            Dim upper = key.ToUpperInvariant()
-            For Each ch In upper
-                If ch = " "c OrElse ch = "-"c OrElse ch = "_"c OrElse ch = ControlChars.Tab OrElse ch = vbLf OrElse ch = vbCr Then
-                    Continue For
-                End If
-                If ch = "("c Then
-                    Exit For
-                End If
-                If Not Char.IsWhiteSpace(ch) Then
-                    sb.Append(ch)
-                End If
-            Next
-            Dim compact = sb.ToString().Trim()
-            Dim doubleSpaceIdx As Integer = compact.IndexOf("  ", StringComparison.Ordinal)
-            While doubleSpaceIdx >= 0
-                compact = compact.Replace("  ", " ")
-                doubleSpaceIdx = compact.IndexOf("  ", StringComparison.Ordinal)
-            End While
+            Dim trimmed = key.Trim()
+            Dim withoutRef = Regex.Replace(trimmed, "\s*-\s*Ref\.?\s*$", String.Empty, RegexOptions.IgnoreCase)
+            Dim compact = Regex.Replace(withoutRef, "\s+", " ").Trim()
             Return compact
         End Function
 

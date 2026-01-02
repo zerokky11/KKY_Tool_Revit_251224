@@ -249,7 +249,7 @@ Namespace Infrastructure
                                            Optional freezeTopRow As Boolean = True,
                                            Optional borderAll As Boolean = True,
                                            Optional autoFit As Boolean = True,
-                                           Optional headerFillColor As Short = 0S)
+                                           Optional headerFillColor As Short = -1S)
             If wb Is Nothing OrElse sheet Is Nothing Then
                 Return
             End If
@@ -270,10 +270,7 @@ Namespace Infrastructure
             headFont.IsBold = True
             Dim headStyle = wb.CreateCellStyle()
             headStyle.SetFont(headFont)
-            Dim resolvedHeaderFill As Short = headerFillColor
-            If resolvedHeaderFill = 0S Then
-                resolvedHeaderFill = IndexedColors.Grey25Percent.Index
-            End If
+            Dim resolvedHeaderFill As Short = If(headerFillColor < 0S, IndexedColors.Grey25Percent.Index, headerFillColor)
             headStyle.FillPattern = FillPattern.SolidForeground
             headStyle.FillForegroundColor = resolvedHeaderFill
             headStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left
@@ -332,7 +329,7 @@ Namespace Infrastructure
                 Next
             End If
 
-            If autoFit Then
+            If autoFit AndAlso lastRow <= 10000 Then
                 For ci As Integer = 0 To lastCol
                     sheet.AutoSizeColumn(ci, False)
                     Dim cur = sheet.GetColumnWidth(ci)
