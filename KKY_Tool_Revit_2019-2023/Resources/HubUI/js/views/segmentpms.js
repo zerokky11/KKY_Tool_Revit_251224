@@ -5,6 +5,35 @@ import { post, onHost } from '../core/bridge.js';
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
 const SUGGEST_SCORE_THRESHOLD = 70;
 let progressHideTimer = null;
+const PROGRESS_STAGE_WEIGHT = { open: 0, start: 0, extract: 0.33, route: 0.66, save: 0.9, finish: 1, done: 1, error: 1 };
+const PROGRESS_STAGE_TITLE = {
+  open: 'RVT 준비 중',
+  start: 'RVT 준비 중',
+  extract: 'Segment 추출 중',
+  route: 'PMS 매핑 적용 중',
+  save: '결과 저장 중',
+  finish: '검토 마무리 중',
+  done: '검토 완료',
+  error: '오류 발생'
+};
+const PROGRESS_STAGE_DETAIL = {
+  open: 'Revit 파일을 여는 중입니다.',
+  start: 'Revit 파일을 여는 중입니다.',
+  extract: 'Segment 데이터를 추출하고 있습니다.',
+  route: 'PMS 룰과 매핑을 준비하고 있습니다.',
+  save: '결과를 저장하고 있습니다.',
+  finish: '처리가 곧 완료됩니다.',
+  done: '모든 파일 처리가 완료되었습니다.',
+  error: '진행 중 오류가 발생했습니다.'
+};
+let progressModal = null;
+let progressBarFillEl = null;
+let progressPctEl = null;
+let progressTitleEl = null;
+let progressDetailEl = null;
+let progressMetaEl = null;
+let progressVisible = false;
+let progressPrevPct = 0;
 
 function loadRvtList() {
   try {
@@ -333,22 +362,21 @@ function buildSuggestionMap(list) {
 
 function handleProgress(payload) {
   if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
+  setTopbarProgress(null);
   ensureProgressModal();
   if (!payload) { hideProgressModal(true); return; }
 
-  const stage = (payload.stage || payload.phase || '').toLowerCase();
+  const stage = normalizeStage(payload.stage || payload.phase);
   const total = Number(payload.total ?? payload.fileTotal) || 0;
   const index = Number(payload.index ?? payload.fileIndex) || 0;
-  const incomingPct = Math.max(0, Math.min(100, Number(payload.percent) || 0));
-  if (!progressVisible || stage === 'open') progressPrevPct = 0;
-  const percent = Math.max(progressPrevPct, incomingPct);
-  progressPrevPct = percent;
+  const percent = computeWeightedPercent(stage, total, index, payload.percent);
 
   const file = payload.file || payload.fileName || '';
   const msg = payload.message || '';
 
   showProgressModal();
   updateProgressModal({
+    stage,
     total,
     index,
     percent,
@@ -357,7 +385,7 @@ function handleProgress(payload) {
   });
 
   if (stage === 'finish' || stage === 'done') {
-    progressHideTimer = setTimeout(() => hideProgressModal(true), 300);
+    progressHideTimer = setTimeout(() => hideProgressModal(true), 600);
   } else if (stage === 'error') {
     hideProgressModal(true);
   }
@@ -431,3 +459,78 @@ function cardBtn(label, onclick) {
 }
 
 function td(v) { const t = document.createElement('td'); t.textContent = v == null ? '' : v; return t; }
+
+function normalizeStage(stage) {
+  return String(stage || '').toLowerCase();
+}
+
+function computeWeightedPercent(stage, total, index, incomingPct) {
+  const clamp = (n) => Math.max(0, Math.min(100, n));
+  const weight = PROGRESS_STAGE_WEIGHT[stage] ?? 0;
+  const safeTotal = Math.max(1, total || 1);
+  if (!progressVisible || stage === 'open' || stage === 'start') progressPrevPct = 0;
+  const baseRatio = ((Math.max(0, index - 1) + weight) / safeTotal) * 100;
+  const parsedPct = Number(incomingPct);
+  const providedPct = Number.isFinite(parsedPct) ? clamp(parsedPct) : 0;
+  const weightedPct = clamp(baseRatio);
+  const pct = Math.max(progressPrevPct, providedPct, weightedPct);
+  progressPrevPct = pct;
+  return pct;
+}
+
+function ensureProgressModal() {
+  if (progressModal && progressModal.isConnected) return;
+  progressModal = div('segmentpms-progress is-hidden');
+  const card = div('segmentpms-progress-card');
+  progressTitleEl = div('segmentpms-progress-title');
+  progressDetailEl = div('segmentpms-progress-detail');
+  progressMetaEl = div('segmentpms-progress-meta');
+  const bar = div('segmentpms-progress-bar');
+  progressBarFillEl = div('segmentpms-progress-fill');
+  bar.append(progressBarFillEl);
+  progressPctEl = div('segmentpms-progress-pct');
+  card.append(progressTitleEl, progressDetailEl, progressMetaEl, bar, progressPctEl);
+  progressModal.append(card);
+  document.body.append(progressModal);
+}
+
+function showProgressModal() {
+  if (!progressModal) ensureProgressModal();
+  progressVisible = true;
+  progressModal.classList.remove('is-hidden');
+}
+
+function hideProgressModal(resetPct) {
+  if (progressModal) progressModal.classList.add('is-hidden');
+  progressVisible = false;
+  if (resetPct) progressPrevPct = 0;
+}
+
+function updateProgressModal(data) {
+  ensureProgressModal();
+  const stage = normalizeStage(data.stage);
+  const pct = Math.max(0, Math.min(100, Number(data.percent) || 0));
+  if (progressBarFillEl) progressBarFillEl.style.width = `${pct}%`;
+  if (progressPctEl) progressPctEl.textContent = `${Math.round(pct)}%`;
+  if (progressTitleEl) progressTitleEl.textContent = PROGRESS_STAGE_TITLE[stage] || 'Segment/PMS 진행 중';
+  if (progressDetailEl) progressDetailEl.textContent = buildProgressDetail(stage, data.message, data.file);
+  if (progressMetaEl) progressMetaEl.textContent = buildProgressMeta(data.total, data.index, data.file);
+}
+
+function buildProgressDetail(stage, message, file) {
+  const parts = [];
+  const fallback = PROGRESS_STAGE_DETAIL[stage] || '데이터를 처리하고 있습니다.';
+  if (message) parts.push(message);
+  if (parts.length === 0) parts.push(fallback);
+  if (file) parts.push(file);
+  return parts.join(' · ');
+}
+
+function buildProgressMeta(total, index, file) {
+  const bits = [];
+  const totalNum = Number(total) || 0;
+  const idxNum = Number(index) || 0;
+  if (totalNum > 0) bits.push(`${Math.max(idxNum, 0)}/${totalNum}`);
+  if (file) bits.push(file);
+  return bits.join(' · ');
+}
