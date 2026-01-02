@@ -504,7 +504,7 @@ Namespace Services
         Private Class SegmentTokenInfo
             Public Property Raw As String = String.Empty
             Public Property BaseCode As String = String.Empty
-            Public Property Variant As String = String.Empty
+            Public Property VariantCode As String = String.Empty
             Public Property Tokens As HashSet(Of String)
             Public Property MaterialTokens As HashSet(Of String)
             Public Property Normalized As String = String.Empty
@@ -602,9 +602,9 @@ Namespace Services
 
             info.BaseCode = ExtractBaseCode(baseSource)
             info.IsGroupLike = IsGroupLikeKey(baseSource)
-            info.Variant = ExtractVariantToken(baseSource)
+            info.VariantCode = ExtractVariantToken(baseSource)
             info.MaterialTokens = ExtractMaterialTokens(upperRaw)
-            info.Tokens = BuildTokens(withoutRef, info.MaterialTokens, info.BaseCode, info.Variant)
+            info.Tokens = BuildTokens(withoutRef, info.MaterialTokens, info.BaseCode, info.VariantCode)
             info.Normalized = NormalizeForSimilarityTokens(info.Tokens)
             Return info
         End Function
@@ -671,7 +671,7 @@ Namespace Services
         Private Shared Function BuildTokens(text As String,
                                             materialTokens As HashSet(Of String),
                                             baseCode As String,
-                                            variant As String) As HashSet(Of String)
+                                            variantCode As String) As HashSet(Of String)
             Dim tokens As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
             If Not String.IsNullOrWhiteSpace(text) Then
                 Dim cleaned = Regex.Replace(text, "[\.,/\\\|\(\)\[\]:\-\+]", " ")
@@ -686,8 +686,8 @@ Namespace Services
             If Not String.IsNullOrWhiteSpace(baseCode) Then
                 tokens.Add(baseCode)
             End If
-            If Not String.IsNullOrWhiteSpace(variant) Then
-                tokens.Add(variant)
+            If Not String.IsNullOrWhiteSpace(variantCode) Then
+                tokens.Add(variantCode)
             End If
             If materialTokens IsNot Nothing Then
                 For Each m In materialTokens
@@ -763,10 +763,10 @@ Namespace Services
                 End If
             End If
 
-            If Not String.IsNullOrWhiteSpace(revitInfo.Variant) Then
-                If Not String.IsNullOrWhiteSpace(pmsInfo.Variant) AndAlso revitInfo.Variant.Equals(pmsInfo.Variant, StringComparison.OrdinalIgnoreCase) Then
+            If Not String.IsNullOrWhiteSpace(revitInfo.VariantCode) Then
+                If Not String.IsNullOrWhiteSpace(pmsInfo.VariantCode) AndAlso revitInfo.VariantCode.Equals(pmsInfo.VariantCode, StringComparison.OrdinalIgnoreCase) Then
                     variantScore = 80
-                    notes.Add(String.Format("variant:{0}", revitInfo.Variant))
+                    notes.Add(String.Format("variant:{0}", revitInfo.VariantCode))
                 End If
             End If
 
