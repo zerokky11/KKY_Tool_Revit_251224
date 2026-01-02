@@ -939,11 +939,12 @@ Namespace Services
 
             ' 1. 편집 가능한 모든 패밀리 수집 (프로젝트 문서 기준)
             Dim allEditableIds As List(Of ElementId) =
-                New FilteredElementCollector(doc).
-                OfClass(GetType(Family)).
-                Where(Function(f) CType(f, Family).IsEditable).
-                ToElementIds().
-                ToList()
+    New FilteredElementCollector(doc).
+        OfClass(GetType(Family)).
+        Cast(Of Family)().
+        Where(Function(x) x IsNot Nothing AndAlso x.IsEditable).
+        Select(Function(x) x.Id).
+        ToList()
 
             Dim totalEditableCount As Integer = allEditableIds.Count
             Dim scanIndex As Integer = 0
@@ -972,7 +973,7 @@ Namespace Services
 
                 Dim famName As String = f.Name
                 If Not nameToFamilyId.ContainsKey(famName) Then
-                    nameToFamilyId.Add(famName, fam.Id)
+                    nameToFamilyId.Add(famName, f.Id)
                 End If
 
                 Dim hostDoc As Document = Nothing
@@ -1491,7 +1492,7 @@ Namespace Services
                     TxnUtil.WithTxn(famDoc, $"TEMP non-shared add: {extDef.Name}",
                         Sub()
 #If REVIT2019 Or REVIT2021 Then
-                            fm.AddParameter(extDef.Name, groupPG, extDef.ParameterType, isInstance)
+                            fm.AddParameter(extDef, groupPG, isInstance) ' ← shared 생성
 #ElseIf REVIT2023 Or REVIT2025 Then
                             fm.AddParameter(extDef, groupPG, isInstance)
 #End If
