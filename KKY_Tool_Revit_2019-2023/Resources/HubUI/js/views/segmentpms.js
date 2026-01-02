@@ -333,22 +333,33 @@ function buildSuggestionMap(list) {
 
 function handleProgress(payload) {
   if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
-  if (!payload) { setTopbarProgress(null); return; }
-  const total = Number(payload.total) || 0;
-  const index = Number(payload.index) || 0;
-  const percent = Math.max(0, Math.min(100, Number(payload.percent) || 0));
-  const stage = (payload.stage || '').toLowerCase();
-  setTopbarProgress({
+  ensureProgressModal();
+  if (!payload) { hideProgressModal(true); return; }
+
+  const stage = (payload.stage || payload.phase || '').toLowerCase();
+  const total = Number(payload.total ?? payload.fileTotal) || 0;
+  const index = Number(payload.index ?? payload.fileIndex) || 0;
+  const incomingPct = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+  if (!progressVisible || stage === 'open') progressPrevPct = 0;
+  const percent = Math.max(progressPrevPct, incomingPct);
+  progressPrevPct = percent;
+
+  const file = payload.file || payload.fileName || '';
+  const msg = payload.message || '';
+
+  showProgressModal();
+  updateProgressModal({
     total,
     index,
     percent,
-    file: payload.file || '',
-    message: payload.message || ''
+    file,
+    message: msg
   });
+
   if (stage === 'finish' || stage === 'done') {
-    progressHideTimer = setTimeout(() => setTopbarProgress(null), 1500);
+    progressHideTimer = setTimeout(() => hideProgressModal(true), 300);
   } else if (stage === 'error') {
-    setTopbarProgress(null);
+    hideProgressModal(true);
   }
 }
 
