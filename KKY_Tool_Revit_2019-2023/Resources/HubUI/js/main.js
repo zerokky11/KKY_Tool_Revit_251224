@@ -1,6 +1,6 @@
 import { initTheme } from './core/theme.js';
 import { onHost, post } from './core/bridge.js';
-import { updateTopMost, setActiveDocument, setDocList } from './core/topbar.js';
+import { updateTopMost, setActiveDocument, setDocList, renderTopbar } from './core/topbar.js';
 import { initLogConsole, toggleLogConsole, log } from './core/dom.js';
 import { renderHome } from './views/home.js';
 import { renderDup } from './views/dup.js';
@@ -13,6 +13,8 @@ initTheme();
 
 // 직전 TopMost 값 기억(중복 수신 무시)
 let _lastTop = null;
+let _viewRoot = null;
+let _topbarRoot = null;
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
@@ -21,6 +23,9 @@ function boot() {
     // 부팅 스켈레톤 제거
     const bootEl = document.getElementById('boot'); if (bootEl) bootEl.remove();
     const app = document.getElementById('app'); if (app) app.hidden = false;
+    _viewRoot = document.getElementById('view-root') || app;
+    _topbarRoot = document.getElementById('topbar-root') || app;
+    renderTopbar(_topbarRoot, false, null);
 
     initLogConsole();
 
@@ -77,12 +82,17 @@ function boot() {
 
 function route() {
     const hash = (location.hash || '').replace('#', '');
+    const onBack = () => { location.hash = ''; };
+    const withBack = hash !== '';
+    renderTopbar(_topbarRoot, withBack, hash === '' ? null : onBack);
+    if (_viewRoot) _viewRoot.innerHTML = '';
+    const targetRoot = _viewRoot || document.getElementById('app');
     switch (hash) {
-        case 'dup': return renderDup();
-        case 'conn': return renderConn();
-        case 'export': return renderExport();
-        case 'paramprop': return renderParamProp();
-        case 'segmentpms': return renderSegmentPms();
-        default: return renderHome();
+        case 'dup': return renderDup(targetRoot);
+        case 'conn': return renderConn(targetRoot);
+        case 'export': return renderExport(targetRoot);
+        case 'paramprop': return renderParamProp(targetRoot);
+        case 'segmentpms': return renderSegmentPms(targetRoot);
+        default: return renderHome(targetRoot);
     }
 }

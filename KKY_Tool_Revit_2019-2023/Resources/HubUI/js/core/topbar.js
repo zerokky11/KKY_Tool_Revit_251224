@@ -9,56 +9,84 @@ let _docNameEl = null;
 let _docSelectEl = null;
 let _docList = [];
 let _activeDoc = { name: '', path: '' };
+let _topbarEl = null;
+let _backBtn = null;
+let _backHandler = null;
+let _progressWrap = null;
+let _progressFill = null;
+let _progressText = null;
+let _progressPct = null;
 
 export function renderTopbar(root, withBack = false, onBack = null) {
-    const topbar = div('topbar');
-    const left = div('topbar-left');
+    const host = document.getElementById('topbar-root') || root;
+    if (!host) return;
+    if (_topbarEl) {
+        if (!_topbarEl.parentElement) host.append(_topbarEl);
+    } else {
+        _topbarEl = div('topbar');
+        const left = div('topbar-left');
+        const center = div('topbar-center');
+        center.innerHTML = '<p class="topbar-tagline">Revit 워크플로우를 하나의 허브에서 관리하세요.</p>';
 
-    if (withBack) {
-        const backBtn = document.createElement('button');
-        backBtn.className = 'btn btn-ghost';
-        backBtn.type = 'button';
-        backBtn.textContent = '허브 홈으로';
+        const right = div('topbar-right');
+        _topbarEl.append(left, center, right);
+        host.append(_topbarEl);
+        buildBrand(left);
+        renderTopbarChips();
 
-        const smartGoHome = () => {
-            try { window.dispatchEvent(new CustomEvent('kkyt:go-home')); } catch (_) { /* noop */ }
-            const before = location.href;
-            try { history.back(); } catch (_) { /* ignore */ }
-            setTimeout(() => {
-                if (location.href === before) {
-                    const url = new URL(location.href);
-                    const parts = url.pathname.split('/');
-                    parts[parts.length - 1] = 'index.html';
-                    url.pathname = parts.join('/');
-                    location.href = url.toString();
-                }
-            }, 80);
-        };
-
-        backBtn.onclick = () => {
-            if (typeof onBack === 'function') {
-                try { onBack(); } catch (_) { smartGoHome(); }
-            } else {
-                smartGoHome();
-            }
-        };
-        left.append(backBtn);
+        _progressWrap = div('topbar-progress hidden');
+        const progRow = div('topbar-progress-row');
+        _progressText = div('topbar-progress-text');
+        _progressPct = div('topbar-progress-pct');
+        progRow.append(_progressText, _progressPct);
+        const progBar = div('topbar-progress-bar');
+        _progressFill = div('topbar-progress-fill'); _progressFill.style.width = '0%';
+        progBar.append(_progressFill);
+        _progressWrap.append(progRow, progBar);
+        _topbarEl.append(_progressWrap);
     }
 
-    left.append(buildBrand());
-
-    const center = div('topbar-center');
-    center.innerHTML = '<p class="topbar-tagline">Revit 워크플로우를 하나의 허브에서 관리하세요.</p>';
-
-    const right = div('topbar-right');
-    topbar.append(left, center, right);
-    root.append(topbar);
-
-    renderTopbarChips();
+    configureBackButton(withBack, onBack);
     setConn(true);
 }
 
-function buildBrand() {
+function configureBackButton(withBack, onBack) {
+    const left = _topbarEl?.querySelector('.topbar-left');
+    if (!left) return;
+    if (!_backBtn) {
+        _backBtn = document.createElement('button');
+        _backBtn.className = 'btn btn-ghost';
+        _backBtn.type = 'button';
+        _backBtn.textContent = '허브 홈으로';
+        left.prepend(_backBtn);
+    }
+
+    _backHandler = onBack;
+    const smartGoHome = () => {
+        try { window.dispatchEvent(new CustomEvent('kkyt:go-home')); } catch (_) { /* noop */ }
+        const before = location.href;
+        try { history.back(); } catch (_) { /* ignore */ }
+        setTimeout(() => {
+            if (location.href === before) {
+                const url = new URL(location.href);
+                const parts = url.pathname.split('/');
+                parts[parts.length - 1] = 'index.html';
+                url.pathname = parts.join('/');
+                location.href = url.toString();
+            }
+        }, 80);
+    };
+    _backBtn.onclick = () => {
+        if (typeof _backHandler === 'function') {
+            try { _backHandler(); } catch (_) { smartGoHome(); }
+        } else {
+            smartGoHome();
+        }
+    };
+    _backBtn.classList.toggle('hidden', !withBack);
+}
+
+function buildBrand(host) {
     const wrap = div('topbar-brand');
     const logo = document.createElement('span');
     logo.className = 'topbar-logo';
@@ -123,7 +151,7 @@ function buildBrand() {
     ver.textContent = APP_VERSION;
 
     wrap.append(logo, text, ver);
-    return wrap;
+    host.append(wrap);
 }
 
 export function renderTopbarChips() {
@@ -197,6 +225,26 @@ export function updateTopMost(on) {
     pin.setAttribute('aria-pressed', active ? 'true' : 'false');
     const label = pin.querySelector('.chip-text');
     if (label) label.textContent = '항상 위';
+}
+
+export function setTopbarProgress(state) {
+    if (!_progressWrap || !_progressFill || !_progressText || !_progressPct) return;
+    if (!state) {
+        _progressWrap.classList.add('hidden');
+        _progressFill.style.width = '0%';
+        _progressText.textContent = '';
+        _progressPct.textContent = '';
+        return;
+    }
+    const total = Math.max(0, Number(state.total) || 0);
+    const idx = Math.max(0, Number(state.index) || 0);
+    const pct = Math.max(0, Math.min(100, Number(state.percent) || 0));
+    const file = state.file || '';
+    const msg = state.message || '';
+    _progressWrap.classList.remove('hidden');
+    _progressFill.style.width = `${pct}%`;
+    _progressText.textContent = `(${idx}/${total || '?'}) ${file} - ${msg}`;
+    _progressPct.textContent = `${Math.round(pct)}%`;
 }
 
 function applyActiveDocumentState() {

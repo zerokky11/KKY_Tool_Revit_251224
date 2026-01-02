@@ -1,14 +1,24 @@
 // Resources/HubUI/js/views/paramprop.js
 import { clear, div, toast, setBusy, showExcelSavedDialog, debounce } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
+import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const DEFAULT_GUIDE = '공유 파라미터 연동을 실행하면 결과가 이곳에 표시됩니다.';
+const PHASE_WEIGHT = { collect: 0.15, analyze: 0.25, apply: 0.5, save: 0.1, close: 0.1, done: 0 };
+const PHASE_ORDER = ['collect', 'analyze', 'apply', 'save', 'close', 'done'];
+const PHASE_LABEL = {
+    collect: '스캔 중',
+    analyze: '분석 중',
+    apply: '적용 중',
+    save: '저장 중',
+    close: '마무리 중',
+    done: '완료'
+};
 
-export function renderParamProp() {
-    const root = document.getElementById('app');
-    clear(root);
-    renderTopbar(root, true, () => { location.hash = ''; });
+export function renderParamProp(root) {
+    const target = root || document.getElementById('view-root') || document.getElementById('app');
+    clear(target);
+    const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
 
     const state = {
         defs: [],
@@ -23,6 +33,7 @@ export function renderParamProp() {
         lastReport: DEFAULT_GUIDE,
         lastDetails: [],
     };
+    let lastProgressPct = 0;
 
     const page = div('paramprop-page feature-shell');
 
@@ -153,14 +164,15 @@ export function renderParamProp() {
     resultCard.append(resultTitle, reportBox, filterRow, detailWrap);
 
     layout.append(pickerCard, resultCard);
-    root.append(page);
+    target.append(page);
 
     // 이벤트/호스트 응답
     onHost('sharedparam:list', handleList);
     onHost('sharedparam:done', handleDone);
     onHost('sharedparam:exported', handleExported);
-    onHost('revit:error', ({ message }) => { setBusy(false); toast(message || 'Revit 오류가 발생했습니다.', 'err', 3200); });
-    onHost('host:error', ({ message }) => { setBusy(false); toast(message || '호스트 오류가 발생했습니다.', 'err', 3200); });
+    onHost('paramprop:progress', handleProgress);
+    onHost('revit:error', ({ message }) => { lastProgressPct = 0; ProgressDialog.hide(); setBusy(false); toast(message || 'Revit 오류가 발생했습니다.', 'err', 3200); });
+    onHost('host:error', ({ message }) => { lastProgressPct = 0; ProgressDialog.hide(); setBusy(false); toast(message || '호스트 오류가 발생했습니다.', 'err', 3200); });
 
     fetchDefinitions();
 
@@ -205,6 +217,8 @@ export function renderParamProp() {
 
         const msg = message || (good ? '공유 파라미터 연동을 완료했습니다.' : '공유 파라미터 연동이 실패했습니다.');
         toast(msg, good ? 'ok' : (status === 'cancelled' ? 'info' : 'err'), 2800);
+        ProgressDialog.update(100, '완료', '공유 파라미터 추가 연동이 완료되었습니다.');
+        setTimeout(() => { lastProgressPct = 0; ProgressDialog.hide(); }, 400);
     }
 
     function handleExported({ ok, path, message }) {
@@ -223,7 +237,10 @@ export function renderParamProp() {
             toast('하나 이상의 파라미터를 선택하세요.', 'warn');
             return;
         }
+        lastProgressPct = 0;
         setBusy(true, '공유 파라미터 연동 중…');
+        ProgressDialog.show('공유 파라미터 추가 연동', '준비 중...');
+        ProgressDialog.update(0, '준비 중...', '');
         exportBtn.disabled = true;
         const payload = {
             paramNames: selected,
@@ -442,5 +459,60 @@ export function renderParamProp() {
         btn.textContent = label;
         btn.onclick = onClick;
         return btn;
+    }
+
+    function handleProgress(payload) {
+        if (!payload) { ProgressDialog.hide(); return; }
+        const phase = String(payload.phase || payload.Stage || '').toLowerCase();
+        const phaseProgress = clamp01(payload.phaseProgress);
+        const current = Number(payload.current || payload.Index || 0) || 0;
+        const total = Number(payload.total || payload.Total || 0) || 0;
+        const message = payload.message || payload.Message || '';
+        const target = payload.target || payload.Target || '';
+
+        const basePct = computeBasePercent(phase);
+        const weight = PHASE_WEIGHT[phase] || 0;
+        const rawPct = phase === 'done' ? 100 : Math.min(100, Math.max(0, (basePct + weight * phaseProgress) * 100));
+        const percent = Math.max(lastProgressPct, rawPct);
+        lastProgressPct = percent;
+
+        const subtitle = buildSubtitle(phase, current, total);
+        const detail = buildDetail(message, target);
+
+        ProgressDialog.show('공유 파라미터 추가 연동', subtitle);
+        ProgressDialog.update(percent, subtitle, detail);
+
+        if (phase === 'done') {
+            setTimeout(() => { lastProgressPct = 0; ProgressDialog.hide(); }, 450);
+        }
+    }
+
+    function clamp01(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(0, Math.min(1, n));
+    }
+
+    function computeBasePercent(phase) {
+        const p = String(phase || '').toLowerCase();
+        let acc = 0;
+        for (const key of PHASE_ORDER) {
+            if (key === p) break;
+            acc += PHASE_WEIGHT[key] || 0;
+        }
+        return acc;
+    }
+
+    function buildSubtitle(phase, current, total) {
+        const label = PHASE_LABEL[phase] || '진행 중';
+        const count = total > 0 ? ` (${Math.max(current, 0)}/${total})` : '';
+        return `${label}${count}`;
+    }
+
+    function buildDetail(message, target) {
+        const parts = [];
+        if (message) parts.push(message);
+        if (target) parts.push(target);
+        return parts.join(' · ');
     }
 }

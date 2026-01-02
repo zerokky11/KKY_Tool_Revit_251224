@@ -1,6 +1,5 @@
 // Resources/HubUI/js/views/dup.js
 import { clear, div, toast, showExcelSavedDialog } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
 import { onHost, post } from '../core/bridge.js';
 
 // Host 이벤트 (fix2 고정)
@@ -17,9 +16,9 @@ const EV_RESTORED_MULTI= 'duplicate:restore';
 const EV_EXPORTED_A    = 'duplicate:export';
 const EV_EXPORTED_B    = 'dup:exported';
 
-export function renderDup() {
-  const root = document.getElementById('app');
-  clear(root);
+export function renderDup(root) {
+  const target = root || document.getElementById('view-root') || document.getElementById('app');
+  clear(target);
 
   // 삭제행 시각 보정: 취소선은 없애고, 약간 흐리게만
   if (!document.getElementById('dup-style-override')) {
@@ -36,8 +35,7 @@ export function renderDup() {
   }
 
   // Topbar (HUB 헤더) 렌더 + sticky용 클래스
-  renderTopbar(root, true);
-  const topbarEl = root.firstElementChild;
+  const topbarEl = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar');
   if (topbarEl) topbarEl.classList.add('hub-topbar');
 
   // ===== 페이지 뼈대 =====
@@ -65,7 +63,7 @@ export function renderDup() {
 
   const body = div('dup-body');
   page.append(body);
-  root.append(page);
+  target.append(page);
 
   // ---- state ----
   let rows      = [];

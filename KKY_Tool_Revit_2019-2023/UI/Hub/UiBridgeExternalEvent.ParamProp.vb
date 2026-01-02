@@ -41,7 +41,7 @@ Namespace UI.Hub
         Private Sub HandleSharedParamRun(app As UIApplication, payload As Object)
             Try
                 Dim req As ParamPropagateService.SharedParamRunRequest = ParamPropagateService.SharedParamRunRequest.FromPayload(payload)
-                Dim res = ParamPropagateService.Run(app, req)
+                Dim res = ParamPropagateService.Run(app, req, AddressOf ReportParamPropProgress)
                 _lastParamResult = res
 
                 Dim status = If(res Is Nothing, ParamPropagateService.RunStatus.Failed, res.Status)
@@ -73,6 +73,22 @@ Namespace UI.Hub
                 SendToWeb("paramprop:done", New With {.ok = False, .status = "failed", .message = ex.Message})
                 SendToWeb("revit:error", New With {.message = "공유 파라미터 연동 실패: " & ex.Message})
             End Try
+        End Sub
+
+        Private Sub ReportParamPropProgress(phase As String,
+                                            phaseProgress As Double,
+                                            current As Integer,
+                                            total As Integer,
+                                            message As String,
+                                            target As String)
+            SendToWeb("paramprop:progress", New With {
+                .phase = phase,
+                .phaseProgress = phaseProgress,
+                .current = current,
+                .total = total,
+                .message = message,
+                .target = target
+            })
         End Sub
 
         ' === sharedparam:export-excel ===

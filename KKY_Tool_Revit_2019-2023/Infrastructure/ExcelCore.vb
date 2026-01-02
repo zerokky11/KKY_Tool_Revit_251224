@@ -176,9 +176,9 @@ Namespace Infrastructure
                     File.Delete(tmpPath)
                 End If
 
-                Using fs As New FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None)
-                    wb.Write(fs)
-                    fs.Flush()
+                Using ms As New MemoryStream()
+                    wb.Write(ms)
+                    File.WriteAllBytes(tmpPath, ms.ToArray())
                 End Using
 
                 Try
@@ -217,6 +217,12 @@ Namespace Infrastructure
         End Sub
 
         Private Sub AutoSizeAll(sh As ISheet, colCount As Integer)
+            If sh Is Nothing Then
+                Return
+            End If
+            If sh.LastRowNum > 10000 Then
+                Return
+            End If
             For ci = 0 To colCount - 1
                 sh.AutoSizeColumn(ci, False)
                 Dim cur = sh.GetColumnWidth(ci)
@@ -264,11 +270,8 @@ Namespace Infrastructure
             headFont.IsBold = True
             Dim headStyle = wb.CreateCellStyle()
             headStyle.SetFont(headFont)
+            Dim resolvedHeaderFill As Short = If(headerFillColor < 0S, IndexedColors.Grey25Percent.Index, headerFillColor)
             headStyle.FillPattern = FillPattern.SolidForeground
-            Dim resolvedHeaderFill As Short = headerFillColor
-            If resolvedHeaderFill < 0 Then
-                resolvedHeaderFill = IndexedColors.Grey25Percent.Index
-            End If
             headStyle.FillForegroundColor = resolvedHeaderFill
             headStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left
             SetThinBorders(headStyle)
@@ -326,7 +329,7 @@ Namespace Infrastructure
                 Next
             End If
 
-            If autoFit Then
+            If autoFit AndAlso lastRow <= 10000 Then
                 For ci As Integer = 0 To lastCol
                     sheet.AutoSizeColumn(ci, False)
                     Dim cur = sheet.GetColumnWidth(ci)

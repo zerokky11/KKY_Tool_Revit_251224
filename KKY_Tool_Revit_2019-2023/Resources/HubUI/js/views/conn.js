@@ -7,7 +7,6 @@
 // - 강조: Status별 톤은 Value1/Value2/Status 셀만 '캡슐형 테두리'로 표시
 
 import { clear, div, tdText, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
 import { post, onHost } from '../core/bridge.js';
 
 const SKEY = 'kky_conn_opts';
@@ -36,10 +35,9 @@ function statusKind(s){
 }
 
 /* ---------- 렌더 ---------- */
-export function renderConn() {
-  const root = document.getElementById('app'); clear(root);
-  renderTopbar(root, true);
-  const topbar = root.firstElementChild; if (topbar) topbar.classList.add('hub-topbar');
+export function renderConn(root) {
+  const target = root || document.getElementById('view-root') || document.getElementById('app'); clear(target);
+  const topbar = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (topbar) topbar.classList.add('hub-topbar');
 
   const opts = loadOpts();
   const state = {
@@ -167,7 +165,7 @@ export function renderConn() {
 
   cardResults.append(tableWrap);
   page.append(rowSettings, cardResults);
-  root.append(page);
+  target.append(page);
 
   // refs
   const tol = grid.querySelector('input[type="number"]');

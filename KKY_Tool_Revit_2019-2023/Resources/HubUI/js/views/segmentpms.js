@@ -1,9 +1,32 @@
 import { clear, div, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
-import { renderTopbar } from '../core/topbar.js';
+import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
 const SUGGEST_SCORE_THRESHOLD = 70;
+let progressHideTimer = null;
+const PROGRESS_STAGE_WEIGHT = { open: 0, start: 0, extract: 0.33, route: 0.66, save: 0.9, finish: 1, done: 1, error: 1 };
+const PROGRESS_STAGE_TITLE = {
+  open: 'RVT 준비 중',
+  start: 'RVT 준비 중',
+  extract: 'Segment 추출 중',
+  route: 'PMS 매핑 적용 중',
+  save: '결과 저장 중',
+  finish: '검토 마무리 중',
+  done: '검토 완료',
+  error: '오류 발생'
+};
+const PROGRESS_STAGE_DETAIL = {
+  open: 'Revit 파일을 여는 중입니다.',
+  start: 'Revit 파일을 여는 중입니다.',
+  extract: 'Segment 데이터를 추출하고 있습니다.',
+  route: 'PMS 룰과 매핑을 준비하고 있습니다.',
+  save: '결과를 저장하고 있습니다.',
+  finish: '처리가 곧 완료됩니다.',
+  done: '모든 파일 처리가 완료되었습니다.',
+  error: '진행 중 오류가 발생했습니다.'
+};
+let progressPrevPct = 0;
 
 function loadRvtList() {
   try {
@@ -17,9 +40,10 @@ function saveRvtList(list) {
   localStorage.setItem(LS_RVT_LIST, JSON.stringify(list || []));
 }
 
-export function renderSegmentPms() {
-  const root = document.getElementById('app'); clear(root);
-  renderTopbar(root, true); const top = root.firstElementChild; if (top) top.classList.add('hub-topbar');
+export function renderSegmentPms(root) {
+  const target = root || document.getElementById('view-root') || document.getElementById('app');
+  clear(target);
+  const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
 
   const state = {
     rvtList: loadRvtList(),
@@ -33,7 +57,8 @@ export function renderSegmentPms() {
     suggestions: new Map(), // key: groupKey -> {cls, segment}
     selections: new Map(), // groupKey -> {cls, segment, source}
     results: null,
-    busy: false
+    busy: false,
+    progressTimer: null
   };
 
   const page = div('feature-shell segmentpms-page');
@@ -94,7 +119,7 @@ export function renderSegmentPms() {
   checkSection.append(resInfo);
   page.append(checkSection);
 
-  root.append(page);
+  target.append(page);
 
   renderRvtList();
   updateButtons();
@@ -133,7 +158,7 @@ export function renderSegmentPms() {
   function onExtract() {
     const targets = state.rvtList.filter(p => state.rvtChecked.has(p));
     if (!targets.length) { toast('추출할 RVT를 선택하세요.', 'err'); return; }
-    setBusy(true, '추출 중'); state.busy = true; updateButtons();
+    state.busy = true; updateButtons();
     post('segmentpms:extract', { files: targets });
   }
 
@@ -294,6 +319,9 @@ export function renderSegmentPms() {
         paintResults(msg.payload || {});
         updateButtons();
         break;
+      case 'segmentpms:progress':
+        handleProgress(msg.payload || {});
+        break;
       case 'segmentpms:saved':
         showExcelSavedDialog('결과를 저장했습니다.', msg.payload?.path, (p) => {
           const target = p || msg.payload?.path;
@@ -322,6 +350,32 @@ function buildSuggestionMap(list) {
     map.set(String(key), { pmsClass: s.pmsClass || s.PmsClass, pmsSegmentKey: s.pmsSegmentKey || s.PmsSegmentKey, score });
   });
   return map;
+}
+
+function handleProgress(payload) {
+  if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
+  if (!payload) { ProgressDialog.hide(); progressPrevPct = 0; return; }
+
+  const stage = normalizeStage(payload.stage || payload.phase);
+  const total = Number(payload.total ?? payload.fileTotal) || 0;
+  const index = Number(payload.index ?? payload.fileIndex) || 0;
+  const percent = computeWeightedPercent(stage, total, index, payload.percent);
+
+  const file = payload.file || payload.fileName || '';
+  const msg = payload.message || '';
+  const title = PROGRESS_STAGE_TITLE[stage] || 'Segment/PMS 진행 중';
+  const subtitle = buildProgressDetail(stage, msg, file);
+  const meta = buildProgressMeta(total, index, file);
+
+  ProgressDialog.show('Segment 매핑/검증', title);
+  ProgressDialog.update(percent, subtitle, meta);
+
+  if (stage === 'finish' || stage === 'done') {
+    progressHideTimer = setTimeout(() => { ProgressDialog.hide(); progressPrevPct = 0; }, 600);
+  } else if (stage === 'error') {
+    ProgressDialog.hide();
+    progressPrevPct = 0;
+  }
 }
 
 function normalizeSuggestion(sug) {
@@ -392,3 +446,39 @@ function cardBtn(label, onclick) {
 }
 
 function td(v) { const t = document.createElement('td'); t.textContent = v == null ? '' : v; return t; }
+
+function normalizeStage(stage) {
+  return String(stage || '').toLowerCase();
+}
+
+function computeWeightedPercent(stage, total, index, incomingPct) {
+  const clamp = (n) => Math.max(0, Math.min(100, n));
+  const weight = PROGRESS_STAGE_WEIGHT[stage] ?? 0;
+  const safeTotal = Math.max(1, total || 1);
+  if (stage === 'open' || stage === 'start') progressPrevPct = 0;
+  const baseRatio = ((Math.max(0, index - 1) + weight) / safeTotal) * 100;
+  const parsedPct = Number(incomingPct);
+  const providedPct = Number.isFinite(parsedPct) ? clamp(parsedPct) : 0;
+  const weightedPct = clamp(baseRatio);
+  const pct = Math.max(progressPrevPct, providedPct, weightedPct);
+  progressPrevPct = pct;
+  return pct;
+}
+
+function buildProgressDetail(stage, message, file) {
+  const parts = [];
+  const fallback = PROGRESS_STAGE_DETAIL[stage] || '데이터를 처리하고 있습니다.';
+  if (message) parts.push(message);
+  if (parts.length === 0) parts.push(fallback);
+  if (file) parts.push(file);
+  return parts.join(' · ');
+}
+
+function buildProgressMeta(total, index, file) {
+  const bits = [];
+  const totalNum = Number(total) || 0;
+  const idxNum = Number(index) || 0;
+  if (totalNum > 0) bits.push(`${Math.max(idxNum, 0)}/${totalNum}`);
+  if (file) bits.push(file);
+  return bits.join(' · ');
+}
