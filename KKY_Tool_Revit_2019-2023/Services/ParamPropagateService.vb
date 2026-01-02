@@ -735,7 +735,39 @@ Namespace Services
         End Function
 
         '==================== 실행 엔트리 ====================
-        Public Shared Function Run(app As UIApplication, request As SharedParamRunRequest) As SharedParamRunResult
+        Private Class ProgressDispatcher
+            Private ReadOnly _cb As Action(Of String, Double, Integer, Integer, String, String)
+            Private ReadOnly _minMs As Integer
+            Private _lastPhase As String = String.Empty
+            Private _lastSent As DateTime = DateTime.MinValue
+
+            Public Sub New(cb As Action(Of String, Double, Integer, Integer, String, String), Optional minIntervalMs As Integer = 180)
+                _cb = cb
+                _minMs = Math.Max(50, minIntervalMs)
+            End Sub
+
+            Public Sub Report(phase As String,
+                              phaseProgress As Double,
+                              current As Integer,
+                              total As Integer,
+                              message As String,
+                              target As String,
+                              Optional force As Boolean = False)
+                If _cb Is Nothing Then Return
+                Dim now As DateTime = DateTime.UtcNow
+                Dim elapsed As Double = (now - _lastSent).TotalMilliseconds
+                Dim phaseChanged As Boolean = Not String.Equals(_lastPhase, phase, StringComparison.OrdinalIgnoreCase)
+                If Not force AndAlso Not phaseChanged AndAlso elapsed < _minMs Then Return
+                _lastPhase = phase
+                _lastSent = now
+                Dim safeProg As Double = Math.Max(0.0R, Math.Min(1.0R, phaseProgress))
+                _cb.Invoke(phase, safeProg, current, total, message, target)
+            End Sub
+        End Class
+
+        Public Shared Function Run(app As UIApplication,
+                                   request As SharedParamRunRequest,
+                                   Optional progress As Action(Of String, Double, Integer, Integer, String, String) = Nothing) As SharedParamRunResult
             Dim result As New SharedParamRunResult With {
                 .Status = RunStatus.Failed,
                 .Details = New List(Of SharedParamDetailRow)()
@@ -757,6 +789,8 @@ Namespace Services
                 result.Message = "프로젝트 문서에서 실행하세요."
                 Return result
             End If
+
+            Dim reporter As New ProgressDispatcher(progress)
 
             Dim sharedPath As String = app.Application.SharedParametersFilename
             If String.IsNullOrEmpty(sharedPath) OrElse Not File.Exists(sharedPath) Then
@@ -784,7 +818,7 @@ Namespace Services
             End If
 
             Dim status As RunStatus =
-                ExecuteCore(doc, extDefs, request.ParamNames, request.ExcludeDummy, chosenPG, request.IsInstance, result)
+                ExecuteCore(doc, extDefs, request.ParamNames, request.ExcludeDummy, chosenPG, request.IsInstance, result, reporter)
 
             result.Status = status
             If String.IsNullOrEmpty(result.Message) Then
@@ -832,7 +866,8 @@ Namespace Services
                                             excludeDummy As Boolean,
                                             chosenPG As BuiltInParameterGroup,
                                             chosenIsInstance As Boolean,
-                                            result As SharedParamRunResult) As RunStatus
+                                            result As SharedParamRunResult,
+                                            reporter As ProgressDispatcher) As RunStatus
 
             ' 1. 편집 가능한 모든 패밀리 수집 (프로젝트 문서 기준)
             Dim allEditable As List(Of Family) =
@@ -843,6 +878,8 @@ Namespace Services
                 ToList()
 
             Dim totalEditableCount As Integer = allEditable.Count
+            Dim scanIndex As Integer = 0
+            reporter.Report("COLLECT", 0.0R, 0, totalEditableCount, "패밀리 스캔 준비", String.Empty, True)
 
             ' 이름 → Family 매핑 (Id 는 Doc별이라 안씀)
             Dim nameToFamily As New Dictionary(Of String, Family)(StringComparer.OrdinalIgnoreCase)
@@ -925,6 +962,14 @@ Namespace Services
                         Try : hostDoc.Close(False) : Catch : End Try
                     End If
                 End Try
+
+                scanIndex += 1
+                reporter.Report("COLLECT",
+                                If(totalEditableCount = 0, 1.0R, CDbl(scanIndex) / CDbl(Math.Max(1, totalEditableCount))),
+                                scanIndex,
+                                totalEditableCount,
+                                "패밀리 스캔 중",
+                                If(f Is Nothing, String.Empty, f.Name))
             Next
 
             ' 복합 패밀리(상위) 목록 (리포트용)
@@ -966,6 +1011,9 @@ Namespace Services
                 dfs(name)
             Next
 
+            Dim totalToProcess As Integer = order.Count
+            reporter.Report("ANALYZE", 1.0R, totalToProcess, totalToProcess, "그래프 분석 완료", String.Empty, True)
+
             '----- 3. 계층 역순으로 파라미터 추가 & 연동 -----
             Dim fatalEx As Exception = Nothing
             Dim addedChild As Integer = 0
@@ -978,6 +1026,8 @@ Namespace Services
             Dim childFails As New List(Of String)()
             Dim skips As New List(Of String)()
             Dim compositeSuccessCount As Integer = 0
+            Dim applyIndex As Integer = 0
+            reporter.Report("APPLY", 0.0R, 0, totalToProcess, "파라미터 적용 준비", String.Empty, True)
 
             Using tgAll As New TransactionGroup(doc, "KKY Shared Param Propagate")
                 tgAll.Start()
@@ -1010,6 +1060,14 @@ Namespace Services
                                               childFails,
                                               skips,
                                               compositeSuccessCount)
+
+                        applyIndex += 1
+                        reporter.Report("APPLY",
+                                        If(totalToProcess = 0, 1.0R, CDbl(applyIndex) / CDbl(Math.Max(1, totalToProcess))),
+                                        applyIndex,
+                                        totalToProcess,
+                                        "파라미터 적용 중",
+                                        If(fam Is Nothing, String.Empty, fam.Name))
                     Next
 
                     tgAll.Assimilate()
@@ -1018,6 +1076,8 @@ Namespace Services
                     Try : tgAll.RollBack() : Catch : End Try
                 End Try
             End Using
+
+            reporter.Report("SAVE", 1.0R, applyIndex, totalToProcess, "결과 저장/정리 중", String.Empty, True)
 
             If fatalEx IsNot Nothing Then
                 result.Message = fatalEx.Message
@@ -1064,6 +1124,7 @@ Namespace Services
 
             result.Report = header.ToString()
             result.Details = BuildDetails(scanLines, skipLines, failLines, childFails)
+            reporter.Report("DONE", 1.0R, applyIndex, totalToProcess, "완료", String.Empty, True)
             Return RunStatus.Succeeded
         End Function
 

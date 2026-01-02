@@ -1,6 +1,6 @@
 import { initTheme } from './core/theme.js';
 import { onHost, post } from './core/bridge.js';
-import { updateTopMost, setActiveDocument, setDocList, renderTopbar, setTopbarProgress } from './core/topbar.js';
+import { updateTopMost, setActiveDocument, setDocList, renderTopbar } from './core/topbar.js';
 import { initLogConsole, toggleLogConsole, log } from './core/dom.js';
 import { renderHome } from './views/home.js';
 import { renderDup } from './views/dup.js';
@@ -15,7 +15,6 @@ initTheme();
 let _lastTop = null;
 let _viewRoot = null;
 let _topbarRoot = null;
-let _progressTimer = null;
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
@@ -72,9 +71,6 @@ function boot() {
                     setDocList(msg.payload);
                     break;
                 }
-                case 'segmentpms:progress':
-                    handleProgress(msg.payload);
-                    break;
                 default:
                     break;
             }
@@ -98,22 +94,5 @@ function route() {
         case 'paramprop': return renderParamProp(targetRoot);
         case 'segmentpms': return renderSegmentPms(targetRoot);
         default: return renderHome(targetRoot);
-    }
-}
-
-function handleProgress(payload) {
-    if (_progressTimer) { clearTimeout(_progressTimer); _progressTimer = null; }
-    if (!payload) { setTopbarProgress(null); return; }
-    const stage = (payload.stage || payload.phase || '').toLowerCase();
-    const data = {
-        total: payload.total ?? payload.fileTotal,
-        index: payload.index ?? payload.fileIndex,
-        percent: payload.percent,
-        file: payload.file || payload.fileName,
-        message: payload.message || ''
-    };
-    setTopbarProgress(data);
-    if (stage === 'done' || stage === 'error') {
-        _progressTimer = setTimeout(() => setTopbarProgress(null), stage === 'error' ? 0 : 1500);
     }
 }

@@ -1,5 +1,5 @@
 import { clear, div, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
-import { setTopbarProgress } from '../core/topbar.js';
+import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
@@ -26,13 +26,6 @@ const PROGRESS_STAGE_DETAIL = {
   done: '모든 파일 처리가 완료되었습니다.',
   error: '진행 중 오류가 발생했습니다.'
 };
-let progressModal = null;
-let progressBarFillEl = null;
-let progressPctEl = null;
-let progressTitleEl = null;
-let progressDetailEl = null;
-let progressMetaEl = null;
-let progressVisible = false;
 let progressPrevPct = 0;
 
 function loadRvtList() {
@@ -338,7 +331,6 @@ export function renderSegmentPms(root) {
         break;
       case 'segmentpms:error':
         setBusy(false); state.busy = false;
-        setTopbarProgress(null);
         toast(msg.payload?.message || '오류가 발생했습니다.', 'err');
         updateButtons();
         break;
@@ -362,9 +354,7 @@ function buildSuggestionMap(list) {
 
 function handleProgress(payload) {
   if (progressHideTimer) { clearTimeout(progressHideTimer); progressHideTimer = null; }
-  setTopbarProgress(null);
-  ensureProgressModal();
-  if (!payload) { hideProgressModal(true); return; }
+  if (!payload) { ProgressDialog.hide(); progressPrevPct = 0; return; }
 
   const stage = normalizeStage(payload.stage || payload.phase);
   const total = Number(payload.total ?? payload.fileTotal) || 0;
@@ -373,21 +363,18 @@ function handleProgress(payload) {
 
   const file = payload.file || payload.fileName || '';
   const msg = payload.message || '';
+  const title = PROGRESS_STAGE_TITLE[stage] || 'Segment/PMS 진행 중';
+  const subtitle = buildProgressDetail(stage, msg, file);
+  const meta = buildProgressMeta(total, index, file);
 
-  showProgressModal();
-  updateProgressModal({
-    stage,
-    total,
-    index,
-    percent,
-    file,
-    message: msg
-  });
+  ProgressDialog.show('Segment 매핑/검증', title);
+  ProgressDialog.update(percent, subtitle, meta);
 
   if (stage === 'finish' || stage === 'done') {
-    progressHideTimer = setTimeout(() => hideProgressModal(true), 600);
+    progressHideTimer = setTimeout(() => { ProgressDialog.hide(); progressPrevPct = 0; }, 600);
   } else if (stage === 'error') {
-    hideProgressModal(true);
+    ProgressDialog.hide();
+    progressPrevPct = 0;
   }
 }
 
@@ -468,7 +455,7 @@ function computeWeightedPercent(stage, total, index, incomingPct) {
   const clamp = (n) => Math.max(0, Math.min(100, n));
   const weight = PROGRESS_STAGE_WEIGHT[stage] ?? 0;
   const safeTotal = Math.max(1, total || 1);
-  if (!progressVisible || stage === 'open' || stage === 'start') progressPrevPct = 0;
+  if (stage === 'open' || stage === 'start') progressPrevPct = 0;
   const baseRatio = ((Math.max(0, index - 1) + weight) / safeTotal) * 100;
   const parsedPct = Number(incomingPct);
   const providedPct = Number.isFinite(parsedPct) ? clamp(parsedPct) : 0;
@@ -476,45 +463,6 @@ function computeWeightedPercent(stage, total, index, incomingPct) {
   const pct = Math.max(progressPrevPct, providedPct, weightedPct);
   progressPrevPct = pct;
   return pct;
-}
-
-function ensureProgressModal() {
-  if (progressModal && progressModal.isConnected) return;
-  progressModal = div('segmentpms-progress is-hidden');
-  const card = div('segmentpms-progress-card');
-  progressTitleEl = div('segmentpms-progress-title');
-  progressDetailEl = div('segmentpms-progress-detail');
-  progressMetaEl = div('segmentpms-progress-meta');
-  const bar = div('segmentpms-progress-bar');
-  progressBarFillEl = div('segmentpms-progress-fill');
-  bar.append(progressBarFillEl);
-  progressPctEl = div('segmentpms-progress-pct');
-  card.append(progressTitleEl, progressDetailEl, progressMetaEl, bar, progressPctEl);
-  progressModal.append(card);
-  document.body.append(progressModal);
-}
-
-function showProgressModal() {
-  if (!progressModal) ensureProgressModal();
-  progressVisible = true;
-  progressModal.classList.remove('is-hidden');
-}
-
-function hideProgressModal(resetPct) {
-  if (progressModal) progressModal.classList.add('is-hidden');
-  progressVisible = false;
-  if (resetPct) progressPrevPct = 0;
-}
-
-function updateProgressModal(data) {
-  ensureProgressModal();
-  const stage = normalizeStage(data.stage);
-  const pct = Math.max(0, Math.min(100, Number(data.percent) || 0));
-  if (progressBarFillEl) progressBarFillEl.style.width = `${pct}%`;
-  if (progressPctEl) progressPctEl.textContent = `${Math.round(pct)}%`;
-  if (progressTitleEl) progressTitleEl.textContent = PROGRESS_STAGE_TITLE[stage] || 'Segment/PMS 진행 중';
-  if (progressDetailEl) progressDetailEl.textContent = buildProgressDetail(stage, data.message, data.file);
-  if (progressMetaEl) progressMetaEl.textContent = buildProgressMeta(data.total, data.index, data.file);
 }
 
 function buildProgressDetail(stage, message, file) {
