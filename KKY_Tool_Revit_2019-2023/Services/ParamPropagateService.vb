@@ -173,6 +173,15 @@ Namespace Services
             End Try
             Return $"[{phase}] Family='{famName}' (Id:{idVal}) - {message}"
         End Function
+
+        Friend Function FindFamilyIdByName(doc As Document, famName As String) As ElementId
+            If doc Is Nothing OrElse String.IsNullOrWhiteSpace(famName) Then Return Nothing
+            Return New FilteredElementCollector(doc).
+                   OfClass(GetType(Family)).
+                   Cast(Of Family)().
+                   FirstOrDefault(Function(f) String.Equals(f.Name, famName, StringComparison.OrdinalIgnoreCase))?.
+                   Id
+        End Function
     End Module
 
     '==================== 파라미터 선택 폼 ====================
@@ -1044,13 +1053,19 @@ Namespace Services
                     ' order: 하위 → 상위. leaf(A-6) 먼저 처리.
                     For Each famName In order
                         Dim famId As ElementId = Nothing
-                        If Not nameToFamilyId.TryGetValue(famName, famId) Then Continue For
+                        If Not nameToFamilyId.TryGetValue(famName, famId) Then
+                            famId = FindFamilyIdByName(doc, famName)
+                            If famId IsNot Nothing Then nameToFamilyId(famName) = famId
+                        End If
+
                         Dim fam As Family = Nothing
-                        Try
-                            fam = TryCast(doc.GetElement(famId), Family)
-                        Catch
-                            fam = Nothing
-                        End Try
+                        If famId IsNot Nothing Then
+                            Try
+                                fam = TryCast(doc.GetElement(famId), Family)
+                            Catch
+                                fam = Nothing
+                            End Try
+                        End If
                         If fam Is Nothing Then
                             lastErrorMessage = MakePhaseError("APPLY", famName, famId, "패밀리를 찾을 수 없습니다.")
                             Continue For
@@ -1061,7 +1076,8 @@ Namespace Services
 
                         Try
                             ProcessFamilyBottomUp(doc,
-                                                  fam,
+                                                  famId,
+                                                  famName,
                                                   extDefs,
                                                   paramNames,
                                                   parentToChildren,
@@ -1079,7 +1095,8 @@ Namespace Services
                                                   parentFails,
                                                   childFails,
                                                   skips,
-                                                  compositeSuccessCount)
+                                                  compositeSuccessCount,
+                                                  nameToFamilyId)
                         Catch ex As Exception
                             lastErrorMessage = MakePhaseError("APPLY", famName, famId, ex.Message)
                             Throw
@@ -1157,7 +1174,8 @@ Namespace Services
 
         ' 패밀리 1개 단위 처리 (계층 역순에서 호출)
         Private Shared Sub ProcessFamilyBottomUp(projDoc As Document,
-                                                 fam As Family,
+                                                 famId As ElementId,
+                                                 famName As String,
                                                  extDefs As IEnumerable(Of ExternalDefinition),
                                                  paramNames As List(Of String),
                                                  parentToChildren As Dictionary(Of String, HashSet(Of String)),
@@ -1175,12 +1193,38 @@ Namespace Services
                                                  parentFails As List(Of String),
                                                  childFails As List(Of String),
                                                  skips As List(Of String),
-                                                 ByRef compositeSuccessCount As Integer)
+                                                 ByRef compositeSuccessCount As Integer,
+                                                 nameToFamilyId As Dictionary(Of String, ElementId))
 
-            If fam Is Nothing Then Return
-            If IsAnnotationFamily(fam) Then Return
+            If projDoc Is Nothing OrElse String.IsNullOrWhiteSpace(famName) Then Return
 
-            Dim famName As String = fam.Name
+            Dim fam As Family = Nothing
+            If famId IsNot Nothing Then
+                Try
+                    fam = TryCast(projDoc.GetElement(famId), Family)
+                Catch
+                    fam = Nothing
+                End Try
+            End If
+            If fam Is Nothing Then
+                famId = FindFamilyIdByName(projDoc, famName)
+                If famId IsNot Nothing Then
+                    Try
+                        fam = TryCast(projDoc.GetElement(famId), Family)
+                        If fam IsNot Nothing AndAlso nameToFamilyId IsNot Nothing Then
+                            nameToFamilyId(famName) = famId
+                        End If
+                    Catch
+                        fam = Nothing
+                    End Try
+                End If
+            End If
+
+            If fam Is Nothing OrElse IsAnnotationFamily(fam) Then
+                parentFails.Add(MakePhaseError("APPLY", famName, famId, "패밀리 인스턴스를 찾을 수 없습니다."))
+                Return
+            End If
+
             Dim famIdVal As Integer = fam.Id.IntegerValue
             Dim hasChildren As Boolean = parentToChildren.ContainsKey(famName)
 
