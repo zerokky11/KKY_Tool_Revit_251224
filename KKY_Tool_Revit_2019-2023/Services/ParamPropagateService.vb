@@ -174,6 +174,53 @@ Namespace Services
             Return $"[{phase}] Family='{famName}' (Id:{idVal}) - {message}"
         End Function
 
+        Friend Function MakeInvalidObjectMessage(phase As String,
+                                                 famName As String,
+                                                 famId As ElementId,
+                                                 operation As String,
+                                                 ex As Autodesk.Revit.Exceptions.InvalidObjectException) As String
+            Dim action As String = If(String.IsNullOrWhiteSpace(operation), "Unknown", operation)
+            Dim baseMsg As String = If(ex Is Nothing, String.Empty, ex.Message)
+            Return MakePhaseError(phase, famName, famId, $"{action} -> {baseMsg}")
+        End Function
+
+        Friend Function TryGetFreshFamily(doc As Document,
+                                           famName As String,
+                                           ByRef famId As ElementId,
+                                           nameToFamilyId As Dictionary(Of String, ElementId)) As Family
+            Dim fam As Family = Nothing
+
+            If doc Is Nothing OrElse String.IsNullOrWhiteSpace(famName) Then Return Nothing
+
+            If famId IsNot Nothing Then
+                Try
+                    fam = TryCast(doc.GetElement(famId), Family)
+                Catch ex As Autodesk.Revit.Exceptions.InvalidObjectException
+                    fam = Nothing
+                Catch
+                    fam = Nothing
+                End Try
+            End If
+
+            If fam Is Nothing Then
+                Dim foundId As ElementId = FindFamilyIdByName(doc, famName)
+                famId = foundId
+                If foundId IsNot Nothing Then
+                    Try
+                        fam = TryCast(doc.GetElement(foundId), Family)
+                    Catch
+                        fam = Nothing
+                    End Try
+
+                    If fam IsNot Nothing AndAlso nameToFamilyId IsNot Nothing Then
+                        nameToFamilyId(famName) = foundId
+                    End If
+                End If
+            End If
+
+            Return fam
+        End Function
+
         Friend Function FindFamilyIdByName(doc As Document, famName As String) As ElementId
             If doc Is Nothing OrElse String.IsNullOrWhiteSpace(famName) Then Return Nothing
             Return New FilteredElementCollector(doc).
@@ -902,7 +949,7 @@ Namespace Services
             Dim scanIndex As Integer = 0
             reporter.Report("COLLECT", 0.0R, 0, totalEditableCount, "패밀리 스캔 준비", String.Empty, True)
 
-            ' 이름 → Family 매핑 (Id 는 Doc별이라 안씀)
+            ' 이름 → ElementId 매핑 (패밀리 객체 캐싱 금지)
             Dim nameToFamilyId As New Dictionary(Of String, ElementId)(StringComparer.OrdinalIgnoreCase)
 
             ' 부모이름 → 자식이름 그래프 (공유 체크된 하위만)
@@ -920,7 +967,7 @@ Namespace Services
                     f = TryCast(doc.GetElement(famId), Family)
                 Catch
                 End Try
-                If f.FamilyCategory Is Nothing Then Continue For
+                If f Is Nothing OrElse f.FamilyCategory Is Nothing Then Continue For
                 If IsAnnotationFamily(f) Then Continue For
 
                 Dim famName As String = f.Name
@@ -978,7 +1025,7 @@ Namespace Services
 
                 Catch ex As Exception
                     If Not IsNoTxnNoise(ex.Message) Then
-                        scanFails.Add(f.Name)
+                        scanFails.Add(famName)
                     End If
                 Finally
                     If hostDoc IsNot Nothing Then
@@ -992,7 +1039,7 @@ Namespace Services
                                 scanIndex,
                                 totalEditableCount,
                                 "패밀리 스캔 중",
-                                If(f Is Nothing, String.Empty, f.Name))
+                                famName)
             Next
 
             ' 복합 패밀리(상위) 목록 (리포트용)
@@ -1058,19 +1105,6 @@ Namespace Services
                             If famId IsNot Nothing Then nameToFamilyId(famName) = famId
                         End If
 
-                        Dim fam As Family = Nothing
-                        If famId IsNot Nothing Then
-                            Try
-                                fam = TryCast(doc.GetElement(famId), Family)
-                            Catch
-                                fam = Nothing
-                            End Try
-                        End If
-                        If fam Is Nothing Then
-                            lastErrorMessage = MakePhaseError("APPLY", famName, famId, "패밀리를 찾을 수 없습니다.")
-                            Continue For
-                        End If
-
                         Dim isParent As Boolean = parentToChildren.ContainsKey(famName)
                         Dim isChild As Boolean = childNames.Contains(famName)
 
@@ -1108,7 +1142,7 @@ Namespace Services
                                         applyIndex,
                                         totalToProcess,
                                         "파라미터 적용 중",
-                                        If(fam Is Nothing, String.Empty, fam.Name))
+                                        famName)
                     Next
 
                     tgAll.Assimilate()
@@ -1198,34 +1232,20 @@ Namespace Services
 
             If projDoc Is Nothing OrElse String.IsNullOrWhiteSpace(famName) Then Return
 
-            Dim fam As Family = Nothing
-            If famId IsNot Nothing Then
-                Try
-                    fam = TryCast(projDoc.GetElement(famId), Family)
-                Catch
-                    fam = Nothing
-                End Try
-            End If
-            If fam Is Nothing Then
-                famId = FindFamilyIdByName(projDoc, famName)
-                If famId IsNot Nothing Then
-                    Try
-                        fam = TryCast(projDoc.GetElement(famId), Family)
-                        If fam IsNot Nothing AndAlso nameToFamilyId IsNot Nothing Then
-                            nameToFamilyId(famName) = famId
-                        End If
-                    Catch
-                        fam = Nothing
-                    End Try
-                End If
-            End If
+            Dim fam As Family = TryGetFreshFamily(projDoc, famName, famId, nameToFamilyId)
 
             If fam Is Nothing OrElse IsAnnotationFamily(fam) Then
-                parentFails.Add(MakePhaseError("APPLY", famName, famId, "패밀리 인스턴스를 찾을 수 없습니다."))
+                Dim missingMsg = MakePhaseError("APPLY", famName, famId, "패밀리 인스턴스를 찾을 수 없습니다.")
+                If isParent Then
+                    parentFails.Add(missingMsg)
+                End If
+                If isChild Then
+                    childFails.Add(missingMsg)
+                End If
                 Return
             End If
 
-            Dim famIdVal As Integer = fam.Id.IntegerValue
+            Dim safeFamId As ElementId = If(fam IsNot Nothing, fam.Id, famId)
             Dim hasChildren As Boolean = parentToChildren.ContainsKey(famName)
 
             Dim famDoc As Document = Nothing
@@ -1234,7 +1254,23 @@ Namespace Services
             Dim localSkipAssoc As Integer = 0
 
             Try
-                famDoc = projDoc.EditFamily(fam)
+                Try
+                    famDoc = projDoc.EditFamily(fam)
+                Catch ex As Autodesk.Revit.Exceptions.InvalidObjectException
+                    ok = False
+                    Dim msg = MakeInvalidObjectMessage("APPLY", famName, safeFamId, "EditFamily", ex)
+                    If isParent Then
+                        parentFails.Add(msg)
+                    ElseIf isChild Then
+                        childFails.Add(msg)
+                    End If
+                    Return
+                End Try
+
+                If famDoc Is Nothing Then
+                    parentFails.Add(MakePhaseError("APPLY", famName, safeFamId, "패밀리 편집에 실패했습니다."))
+                    Return
+                End If
                 Dim fm As FamilyManager = famDoc.FamilyManager
 
                 ' 1) 이 패밀리에 공유 파라미터 추가/교정
@@ -1288,11 +1324,16 @@ Namespace Services
                                 childF = sym.Family
                             Catch ex As Autodesk.Revit.Exceptions.InvalidObjectException
                                 ok = False
-                                parentFails.Add($"{famName}: [Associate] 오류 - {ex.Message}")
+                                Dim msg = MakeInvalidObjectMessage("APPLY", famName, safeFamId, "Associate:ResolveChildSymbol", ex)
+                                If isParent Then
+                                    parentFails.Add(msg)
+                                ElseIf isChild Then
+                                    childFails.Add(msg)
+                                End If
                                 Continue For
                             Catch ex As Exception
                                 ok = False
-                                parentFails.Add($"{famName}: [Associate] 오류 - {ex.Message}")
+                                parentFails.Add(MakePhaseError("APPLY", famName, safeFamId, $"[Associate] 오류 - {ex.Message}"))
                                 Continue For
                             End Try
 
@@ -1333,17 +1374,30 @@ Namespace Services
                                     Try
                                         famDoc.FamilyManager.AssociateElementParameterToFamilyParameter(p, hostParam)
                                         linkCnt += 1
-                                    Catch
+                                    Catch ex As Autodesk.Revit.Exceptions.InvalidObjectException
                                         ok = False
-                                        parentFails.Add($"{famName}: [Associate] 실패 - {name}")
+                                        Dim msg = MakeInvalidObjectMessage("APPLY", famName, safeFamId, $"Associate:{name}", ex)
+                                        If isParent Then
+                                            parentFails.Add(msg)
+                                        ElseIf isChild Then
+                                            childFails.Add(msg)
+                                        End If
+                                    Catch ex As Exception
+                                        ok = False
+                                        parentFails.Add(MakePhaseError("APPLY", famName, safeFamId, $"[Associate] 실패 - {name}: {ex.Message}"))
                                     End Try
                                 Catch ex As Autodesk.Revit.Exceptions.InvalidObjectException
                                     ok = False
-                                    parentFails.Add($"{famName}: [Associate] 오류 - {ex.Message}")
+                                    Dim msg = MakeInvalidObjectMessage("APPLY", famName, safeFamId, $"Associate:{name}", ex)
+                                    If isParent Then
+                                        parentFails.Add(msg)
+                                    ElseIf isChild Then
+                                        childFails.Add(msg)
+                                    End If
                                     Continue For
                                 Catch ex As Exception
                                     ok = False
-                                    parentFails.Add($"{famName}: [Associate] 오류 - {ex.Message}")
+                                    parentFails.Add(MakePhaseError("APPLY", famName, safeFamId, $"[Associate] 오류 - {ex.Message}"))
                                     Continue For
                                 End Try
                             Next
@@ -1382,10 +1436,18 @@ Namespace Services
                     compositeSuccessCount += 1
                 End If
 
+            Catch ex As Autodesk.Revit.Exceptions.InvalidObjectException
+                ok = False
+                Dim failMsg As String = MakeInvalidObjectMessage("APPLY", famName, safeFamId, "ProcessFamilyBottomUp", ex)
+                If isParent Then
+                    parentFails.Add(failMsg)
+                ElseIf isChild Then
+                    childFails.Add(failMsg)
+                End If
             Catch ex As Exception
                 ok = False
                 If Not IsNoTxnNoise(ex.Message) Then
-                    Dim failMsg As String = MakePhaseError("APPLY", famName, fam.Id, ex.Message)
+                    Dim failMsg As String = MakePhaseError("APPLY", famName, safeFamId, ex.Message)
                     If isParent Then
                         parentFails.Add(failMsg)
                     ElseIf isChild Then
