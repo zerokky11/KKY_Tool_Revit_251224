@@ -360,7 +360,8 @@ Namespace UI.Hub
 
                 ' 엑셀 저장
                 Dim doAutoFit As Boolean = ParseExcelMode(payload)
-                Exports.DuplicateExport.Save(outPath, _lastRows.Cast(Of Object)(), doAutoFit)
+                ExcelProgressReporter.Reset("dup:progress")
+                Exports.DuplicateExport.Save(outPath, _lastRows.Cast(Of Object)(), doAutoFit, "dup:progress")
 
                 SendToWeb("dup:exported", New With {.path = outPath, .ok = True, .token = token})
             Catch ioEx As IOException

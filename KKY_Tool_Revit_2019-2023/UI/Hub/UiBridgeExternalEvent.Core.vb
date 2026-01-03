@@ -256,6 +256,11 @@ Namespace UI.Hub
             SendToWeb("host:log", New With {.kind = kind, .text = text})
         End Sub
 
+        Friend Shared Sub LogAutoFitDecision(doAutoFit As Boolean, context As String)
+            Dim tag As String = If(doAutoFit, "NORMAL_EXPORT: AutoFit applied", "FAST_EXPORT: AutoFit skipped")
+            HostLog("debug", $"{tag} [{context}]")
+        End Sub
+
         Private Sub HandleExcelOpen(payload As Object)
             Dim inputPath As String = TryCast(GetProp(payload, "path"), String)
             If String.IsNullOrWhiteSpace(inputPath) Then

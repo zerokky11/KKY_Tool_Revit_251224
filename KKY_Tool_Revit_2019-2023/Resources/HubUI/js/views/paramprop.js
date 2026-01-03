@@ -4,14 +4,29 @@ import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const DEFAULT_GUIDE = '공유 파라미터 연동을 실행하면 결과가 이곳에 표시됩니다.';
-const PHASE_WEIGHT = { collect: 0.15, analyze: 0.25, apply: 0.5, save: 0.1, close: 0.1, done: 0 };
-const PHASE_ORDER = ['collect', 'analyze', 'apply', 'save', 'close', 'done'];
+const PHASE_WEIGHT = {
+    collect: 0.15,
+    analyze: 0.25,
+    apply: 0.3,
+    save: 0.05,
+    close: 0.05,
+    excel_init: 0.05,
+    excel_write: 0.12,
+    excel_save: 0.02,
+    autofit: 0.01,
+    done: 0
+};
+const PHASE_ORDER = ['collect', 'analyze', 'apply', 'save', 'close', 'excel_init', 'excel_write', 'excel_save', 'autofit', 'done'];
 const PHASE_LABEL = {
     collect: '스캔 중',
     analyze: '분석 중',
     apply: '적용 중',
     save: '저장 중',
     close: '마무리 중',
+    excel_init: '엑셀 준비',
+    excel_write: '엑셀 작성',
+    excel_save: '파일 저장',
+    autofit: 'AutoFit 적용',
     done: '완료'
 };
 

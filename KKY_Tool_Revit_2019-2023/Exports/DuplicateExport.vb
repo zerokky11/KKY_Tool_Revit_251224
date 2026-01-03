@@ -14,20 +14,20 @@ Namespace Exports
 
     Public Module DuplicateExport
 
-        Public Function Save(rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False) As String
+        Public Function Save(rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing) As String
             Dim mapped = MapRows(rows)
             Dim dt = BuildSimpleTable(mapped)
-            Return ExcelCore.PickAndSaveXlsx("Duplicates (Simple)", dt, "Duplicates.xlsx", doAutoFit)
+            Return ExcelCore.PickAndSaveXlsx("Duplicates (Simple)", dt, "Duplicates.xlsx", doAutoFit, progressChannel)
         End Function
 
-        Public Sub Save(outPath As String, rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False)
-            Export(outPath, rows, doAutoFit)
+        Public Sub Save(outPath As String, rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
+            Export(outPath, rows, doAutoFit, progressChannel)
         End Sub
 
-        Public Sub Export(outPath As String, rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False)
+        Public Sub Export(outPath As String, rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             Dim mapped = MapRows(rows)
             Dim dt = BuildSimpleTable(mapped)
-            ExcelCore.SaveStyledSimple(outPath, "Duplicates (Simple)", dt, "Group", doAutoFit)
+            ExcelCore.SaveStyledSimple(outPath, "Duplicates (Simple)", dt, "Group", doAutoFit, progressChannel)
         End Sub
 
         Private Function MapRows(rows As System.Collections.IEnumerable) As System.Collections.Generic.List(Of DupRowDto)

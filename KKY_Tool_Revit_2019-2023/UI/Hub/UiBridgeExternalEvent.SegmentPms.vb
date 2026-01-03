@@ -312,7 +312,7 @@ Namespace UI.Hub
                     _lastExtractPath = dlg.FileName
                     ReportProgress(files.Count, files.Count, "save", "엑셀 저장 중", dlg.FileName)
                     Dim doAutoFit As Boolean = ParseExcelMode(payload)
-                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit)
+                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit, "segmentpms:progress")
                     WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
                     ReportProgress(files.Count, files.Count, "done", "추출 완료", dlg.FileName)
@@ -339,7 +339,7 @@ Namespace UI.Hub
                 End If
                 Try
                     Dim doAutoFit As Boolean = ParseExcelMode(payload)
-                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit)
+                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit, "segmentpms:progress")
                     _lastExtractPath = dlg.FileName
                     WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
@@ -489,7 +489,12 @@ Namespace UI.Hub
                     Return
                 End If
 
+                Dim totalRowsCount As Integer = classRows.Count + sizeRows.Count + routingRows.Count
+                Dim written As Integer = 0
                 Try
+                    ExcelProgressReporter.Reset("segmentpms:progress")
+                    ExcelProgressReporter.Report("segmentpms:progress", "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRowsCount, Nothing, True)
+                    LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.HandleSegmentPmsSaveResult")
                     Dim wb As IWorkbook = New XSSFWorkbook()
                     Dim mapTable As DataTable = Nothing
                     Dim compareTable As DataTable = Nothing
@@ -510,20 +515,29 @@ Namespace UI.Hub
                         Return
                     End If
 
-                    AddSheet(wb, "Pipe Segment Class검토", classRows, New List(Of String) From {"File", "PipeType", "Segment", "Class검토결과"})
-                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"FileName", "PipeType", "RevitSegment", "PMSCompared", "ND", "ID", "OD", "PMS ND", "PMS ID", "PMS OD", "Result"})
-                    AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Type", "Class검토"})
+                    AddSheet(wb, "Pipe Segment Class검토", classRows, New List(Of String) From {"File", "PipeType", "Segment", "Class검토결과"}, "segmentpms:progress", written, totalRowsCount, doAutoFit)
+                    AddSheet(wb, "PMS vs Segment Size검토", sizeRows, New List(Of String) From {"FileName", "PipeType", "RevitSegment", "PMSCompared", "ND", "ID", "OD", "PMS ND", "PMS ID", "PMS OD", "Result"}, "segmentpms:progress", written, totalRowsCount, doAutoFit)
+                    AddSheet(wb, "Routing Class검토", routingRows, New List(Of String) From {"File", "PipeType", "Part", "Type", "Class검토"}, "segmentpms:progress", written, totalRowsCount, doAutoFit)
                     Dim savePath As String = dlg.FileName
                     Try
                         savePath = System.IO.Path.GetFullPath(dlg.FileName)
                     Catch
                     End Try
+                    ExcelProgressReporter.Report("segmentpms:progress", "EXCEL_SAVE", "파일 저장 중", written, totalRowsCount, Nothing, True)
                     SaveWorkbookSafe(wb, savePath)
                     WaitForFileReady(savePath)
                     wb.Close()
-                    If doAutoFit Then Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
+                    Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+                    If doAutoFit Then
+                        ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
+                        Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
+                    Else
+                        ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
+                    End If
+                    ExcelProgressReporter.Report("segmentpms:progress", "DONE", "엑셀 저장 완료", written, totalRowsCount, 100.0R, True)
                     SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
+                    ExcelProgressReporter.Report("segmentpms:progress", "ERROR", ex.Message, written, totalRowsCount, Nothing, True)
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
             End Using
@@ -664,7 +678,14 @@ Namespace UI.Hub
             Return res
         End Function
 
-        Private Shared Sub AddSheet(wb As IWorkbook, name As String, rows As List(Of Dictionary(Of String, Object)), columns As IList(Of String))
+        Private Shared Sub AddSheet(wb As IWorkbook,
+                                    name As String,
+                                    rows As List(Of Dictionary(Of String, Object)),
+                                    columns As IList(Of String),
+                                    Optional progressChannel As String = Nothing,
+                                    Optional ByRef written As Integer = 0,
+                                    Optional totalRows As Integer = 0,
+                                    Optional doAutoFit As Boolean = False)
             Dim sh = wb.CreateSheet(name)
             If columns Is Nothing OrElse columns.Count = 0 Then
                 Return
@@ -700,9 +721,11 @@ Namespace UI.Hub
                     End If
                 Next
                 rIndex += 1
+                written += 1
+                ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
             Next
 
-            ExcelCore.ApplyStandardSheetStyle(wb, sh, headerRowIndex:=0, autoFilter:=True, freezeTopRow:=True, borderAll:=True, autoFit:=True)
+            ExcelCore.ApplyStandardSheetStyle(wb, sh, headerRowIndex:=0, autoFilter:=True, freezeTopRow:=True, borderAll:=True, autoFit:=doAutoFit)
             ExcelCore.ApplyNumberFormatByHeader(wb, sh, 0, New String() {"ND", "ID", "OD", "PMS ND", "PMS ID", "PMS OD", "PMS_ND", "PMS_ID", "PMS_OD", "Diff_ID", "Diff_OD", "ND_mm", "ID_mm", "OD_mm"}, "0.####################")
             ExcelCore.ApplyResultFillByHeader(wb, sh, 0)
         End Sub

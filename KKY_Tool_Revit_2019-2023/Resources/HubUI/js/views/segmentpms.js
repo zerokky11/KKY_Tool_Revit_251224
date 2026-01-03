@@ -5,13 +5,30 @@ import { post, onHost } from '../core/bridge.js';
 const LS_RVT_LIST = 'kky_segmentpms_rvt_list';
 const SUGGEST_SCORE_THRESHOLD = 70;
 let progressHideTimer = null;
-const PROGRESS_STAGE_WEIGHT = { open: 0, start: 0, extract: 0.33, route: 0.66, save: 0.9, finish: 1, done: 1, error: 1 };
+const PROGRESS_STAGE_WEIGHT = {
+  open: 0,
+  start: 0,
+  extract: 0.33,
+  route: 0.66,
+  save: 0.75,
+  excel_init: 0.75,
+  excel_write: 0.9,
+  excel_save: 0.95,
+  autofit: 0.98,
+  finish: 1,
+  done: 1,
+  error: 1
+};
 const PROGRESS_STAGE_TITLE = {
   open: 'RVT 준비 중',
   start: 'RVT 준비 중',
   extract: 'Segment 추출 중',
   route: 'PMS 매핑 적용 중',
   save: '결과 저장 중',
+  excel_init: '엑셀 준비 중',
+  excel_write: '엑셀 작성 중',
+  excel_save: '엑셀 저장 중',
+  autofit: 'AutoFit 적용 중',
   finish: '검토 마무리 중',
   done: '검토 완료',
   error: '오류 발생'
@@ -22,6 +39,10 @@ const PROGRESS_STAGE_DETAIL = {
   extract: 'Segment 데이터를 추출하고 있습니다.',
   route: 'PMS 룰과 매핑을 준비하고 있습니다.',
   save: '결과를 저장하고 있습니다.',
+  excel_init: '엑셀 워크북을 준비하고 있습니다.',
+  excel_write: '엑셀 데이터를 작성하고 있습니다.',
+  excel_save: '파일을 저장하는 중입니다.',
+  autofit: 'AutoFit을 적용하고 있습니다.',
   finish: '처리가 곧 완료됩니다.',
   done: '모든 파일 처리가 완료되었습니다.',
   error: '진행 중 오류가 발생했습니다.'
@@ -358,8 +379,9 @@ function handleProgress(payload) {
 
   const stage = normalizeStage(payload.stage || payload.phase);
   const total = Number(payload.total ?? payload.fileTotal) || 0;
-  const index = Number(payload.index ?? payload.fileIndex) || 0;
-  const percent = computeWeightedPercent(stage, total, index, payload.percent);
+  const index = Number(payload.index ?? payload.fileIndex ?? payload.current) || 0;
+  const currentRows = Number(payload.current) || index;
+  const percent = computeWeightedPercent(stage, total, index, payload.percent, currentRows);
 
   const file = payload.file || payload.fileName || '';
   const msg = payload.message || '';
@@ -451,15 +473,17 @@ function normalizeStage(stage) {
   return String(stage || '').toLowerCase();
 }
 
-function computeWeightedPercent(stage, total, index, incomingPct) {
+function computeWeightedPercent(stage, total, index, incomingPct, currentRows = 0) {
   const clamp = (n) => Math.max(0, Math.min(100, n));
   const weight = PROGRESS_STAGE_WEIGHT[stage] ?? 0;
   const safeTotal = Math.max(1, total || 1);
   if (stage === 'open' || stage === 'start') progressPrevPct = 0;
-  const baseRatio = ((Math.max(0, index - 1) + weight) / safeTotal) * 100;
+  const cursor = Math.max(0, stage.startsWith('excel') || stage === 'autofit' ? currentRows : index);
+  const basePct = clamp(weight * 100);
+  const ratio = safeTotal > 0 ? Math.min(1, Math.max(0, cursor / safeTotal)) : 0;
+  const weightedPct = clamp(basePct + (100 - basePct) * ratio);
   const parsedPct = Number(incomingPct);
   const providedPct = Number.isFinite(parsedPct) ? clamp(parsedPct) : 0;
-  const weightedPct = clamp(baseRatio);
   const pct = Math.max(progressPrevPct, providedPct, weightedPct);
   progressPrevPct = pct;
   return pct;

@@ -274,7 +274,8 @@ Namespace UI.Hub
                 Dim mismatchCount As Integer = CountMismatches(filteredTotal)
 
                 Dim doAutoFit As Boolean = ParseExcelMode(payload)
-                Dim saved As String = SaveRowsToExcel(filteredTotal, mismatchCount, _connectorExtraParams, doAutoFit)
+                ExcelProgressReporter.Reset("connector:progress")
+                Dim saved As String = SaveRowsToExcel(filteredTotal, mismatchCount, _connectorExtraParams, doAutoFit, "connector:progress")
 
                 SendToWeb("connector:saved", New With {.path = saved})
 
@@ -442,41 +443,66 @@ Namespace UI.Hub
             Return cnt
         End Function
 
-        Private Function SaveRowsToExcel(totalRows As List(Of Dictionary(Of String, Object)), Optional mismatchCount As Integer = -1, Optional extraParams As List(Of String) = Nothing, Optional doAutoFit As Boolean = False) As String
+        Private Function SaveRowsToExcel(totalRows As List(Of Dictionary(Of String, Object)),
+                                         Optional mismatchCount As Integer = -1,
+                                         Optional extraParams As List(Of String) = Nothing,
+                                         Optional doAutoFit As Boolean = False,
+                                         Optional progressChannel As String = Nothing) As String
             Dim todayToken As String = Date.Now.ToString("yyMMdd")
             Dim count As Integer = If(mismatchCount < 0, CountMismatches(totalRows), mismatchCount)
             Dim defaultName As String = $"{todayToken}_커넥터기반 속성값 검토 결과_{count}개.xlsx"
+            Dim totalCount As Integer = If(totalRows, New List(Of Dictionary(Of String, Object))()).Count
+            ExcelProgressReporter.Reset(progressChannel)
+            ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalCount, Nothing, True)
+            LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.SaveRowsToExcel")
+            Dim written As Integer = 0
 
-            Using sfd As New SaveFileDialog()
-                sfd.Filter = "Excel Workbook (*.xlsx)|*.xlsx"
-                sfd.FileName = defaultName
-                If sfd.ShowDialog() <> DialogResult.OK Then Throw New OperationCanceledException()
+            Try
+                Using sfd As New SaveFileDialog()
+                    sfd.Filter = "Excel Workbook (*.xlsx)|*.xlsx"
+                    sfd.FileName = defaultName
+                    If sfd.ShowDialog() <> DialogResult.OK Then Throw New OperationCanceledException()
 
-                Dim savePath = sfd.FileName
-                Using fs As New FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None)
-                    Using wb As New XSSFWorkbook()
-                        Dim extrasSource As List(Of String) = If(extraParams, New List(Of String)())
-                        If (extrasSource Is Nothing OrElse extrasSource.Count = 0) AndAlso totalRows IsNot Nothing AndAlso totalRows.Count > 0 Then
-                            extrasSource = InferExtrasFromRow(totalRows(0))
-                        End If
-                        Dim extrasHeaders = BuildExtraHeaders(extrasSource)
+                    Dim savePath = sfd.FileName
+                    Using fs As New FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None)
+                        Using wb As New XSSFWorkbook()
+                            Dim extrasSource As List(Of String) = If(extraParams, New List(Of String)())
+                            If (extrasSource Is Nothing OrElse extrasSource.Count = 0) AndAlso totalRows IsNot Nothing AndAlso totalRows.Count > 0 Then
+                                extrasSource = InferExtrasFromRow(totalRows(0))
+                            End If
+                            Dim extrasHeaders = BuildExtraHeaders(extrasSource)
 
-                        Dim headersTotal = BuildHeaders(extrasHeaders)
-                        Dim baseStyle As ICellStyle = CreateBorderedStyle(wb)
-                        Dim headerStyle As ICellStyle = CreateHeaderStyle(wb, baseStyle)
-                        Dim mismatchStyle As ICellStyle = CreateFillStyle(wb, baseStyle, New Byte() {&HF9, &HD3, &HD7}) ' light red
-                        Dim matchStyle As ICellStyle = CreateFillStyle(wb, baseStyle, New Byte() {&HD6, &HEF, &HD6})   ' light green
-                        Dim nearStyle As ICellStyle = CreateFillStyle(wb, baseStyle, New Byte() {&HFA, &HF3, &HD1})    ' light yellow
+                            Dim headersTotal = BuildHeaders(extrasHeaders)
+                            Dim baseStyle As ICellStyle = CreateBorderedStyle(wb)
+                            Dim headerStyle As ICellStyle = CreateHeaderStyle(wb, baseStyle)
+                            Dim mismatchStyle As ICellStyle = CreateFillStyle(wb, baseStyle, New Byte() {&HF9, &HD3, &HD7}) ' light red
+                            Dim matchStyle As ICellStyle = CreateFillStyle(wb, baseStyle, New Byte() {&HD6, &HEF, &HD6})   ' light green
+                            Dim nearStyle As ICellStyle = CreateFillStyle(wb, baseStyle, New Byte() {&HFA, &HF3, &HD1})    ' light yellow
 
-                        Dim totalBase = totalRows.Select(Function(r) StripExtras(r, extrasHeaders)).ToList()
-                        WriteSheet(wb, "Total", headersTotal, totalBase, headerStyle, baseStyle, matchStyle, mismatchStyle, nearStyle)
+                            Dim totalBase = totalRows.Select(Function(r) StripExtras(r, extrasHeaders)).ToList()
+                            WriteSheet(wb, "Total", headersTotal, totalBase, headerStyle, baseStyle, matchStyle, mismatchStyle, nearStyle, progressChannel, written, totalCount, doAutoFit)
 
-                        wb.Write(fs)
+                            wb.Write(fs)
+                        End Using
                     End Using
+                    ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalCount, totalCount, Nothing, True)
+                    Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+                    If doAutoFit Then
+                        ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
+                        Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
+                    Else
+                        ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
+                    End If
+                    ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalCount, totalCount, 100.0R, True)
+                    Return savePath
                 End Using
-                If doAutoFit Then Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
-                Return savePath
-            End Using
+            Catch ex As OperationCanceledException
+                ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장이 취소되었습니다.", written, totalCount, 100.0R, True)
+                Return String.Empty
+            Catch ex As Exception
+                ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalCount, Nothing, True)
+                Throw
+            End Try
         End Function
 
         ' 테두리/헤더/색상 스타일 헬퍼 (같은 워크북 내 공유)
@@ -734,7 +760,19 @@ Namespace UI.Hub
             Return pairRows.Values.Select(Function(r) CloneRow(r)).ToList()
         End Function
 
-        Private Shared Sub WriteSheet(wb As XSSFWorkbook, sheetName As String, headers As List(Of String), rows As List(Of Dictionary(Of String, Object)), headerStyle As ICellStyle, baseStyle As ICellStyle, matchStyle As ICellStyle, mismatchStyle As ICellStyle, nearStyle As ICellStyle)
+        Private Shared Sub WriteSheet(wb As XSSFWorkbook,
+                                      sheetName As String,
+                                      headers As List(Of String),
+                                      rows As List(Of Dictionary(Of String, Object)),
+                                      headerStyle As ICellStyle,
+                                      baseStyle As ICellStyle,
+                                      matchStyle As ICellStyle,
+                                      mismatchStyle As ICellStyle,
+                                      nearStyle As ICellStyle,
+                                      Optional progressChannel As String = Nothing,
+                                      Optional ByRef written As Integer = 0,
+                                      Optional totalRows As Integer = 0,
+                                      Optional doAutoFit As Boolean = False)
             Dim sh = wb.CreateSheet(sheetName)
 
             Dim headerRow = sh.CreateRow(0)
@@ -789,10 +827,14 @@ Namespace UI.Hub
                         cell.SetCellValue(text)
                         cell.CellStyle = styleToUse
                     Next
+                    written += 1
+                    ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
                 Next
             End If
 
-            ApplyFastColumnWidths(sh, headers, rows)
+            If doAutoFit Then
+                ApplyFastColumnWidths(sh, headers, rows)
+            End If
         End Sub
 
         Private Shared Sub ApplyFastColumnWidths(sh As ISheet, headers As List(Of String), rows As List(Of Dictionary(Of String, Object)))
