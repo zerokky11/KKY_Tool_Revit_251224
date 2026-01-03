@@ -1,10 +1,11 @@
-import { clear, div, toast, showExcelSavedDialog } from '../core/dom.js';
+import { clear, div, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const LS_RVTS = 'kky_guid_rvts';
 
 const HIDDEN_DETAIL_COLS = new Set(['RvtPath']);
+const EXCEL_PHASE_WEIGHT = { EXCEL_INIT: 0.05, EXCEL_WRITE: 0.85, EXCEL_SAVE: 0.08, AUTOFIT: 0.02, DONE: 1, ERROR: 1 };
 
 export function renderGuid(root) {
     const target = root || document.getElementById('view-root') || document.getElementById('app');
@@ -14,6 +15,7 @@ export function renderGuid(root) {
     const state = {
         mode: 1,
         rvtList: loadRvtList(),
+        rvtChecked: new Set(loadRvtList()),
         summary: { columns: [], rows: [] },
         detail: { columns: [], rows: [] },
         activeTab: 'summary',
@@ -21,6 +23,7 @@ export function renderGuid(root) {
         activeFamily: '',
         busy: false
     };
+    let lastExcelPct = 0;
 
     const page = div('feature-shell guid-page');
 
@@ -53,13 +56,14 @@ export function renderGuid(root) {
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
     const rvtActions = div('feature-actions');
-    const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', {}));
-    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; persistRvts(); renderRvtList(); });
-    rvtActions.append(btnAdd, btnClear);
+    const btnAdd = cardBtn('RVT 추가...', () => post('guid:add-files', { pick: 'files' }));
+    const btnAddFolder = cardBtn('폴더 추가...', () => post('guid:add-files', { pick: 'folder' }));
+    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); });
+    rvtActions.append(btnAdd, btnAddFolder, btnClear);
     rvtHeader.append(rvtTitle, rvtActions);
     const rvtTableWrap = div('guid-table-wrap');
     const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
-    rvtTable.innerHTML = '<thead><tr><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
+    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
     rvtTableWrap.append(rvtTable);
     rvtSection.append(rvtHeader, rvtTableWrap);
@@ -115,6 +119,7 @@ export function renderGuid(root) {
             if (!p || typeof p !== 'string') return;
             const exists = state.rvtList.some(x => samePath(x, p));
             if (!exists) { state.rvtList.push(p); added++; }
+            state.rvtChecked.add(p);
         });
         if (added) {
             persistRvts();
@@ -122,18 +127,18 @@ export function renderGuid(root) {
         }
     });
 
-    onHost('guid:progress', ({ pct, text }) => {
-        const percent = typeof pct === 'number' ? pct : 0;
-        const message = text || '';
-        if (!state.busy && percent <= 0) return;
-        if (!state.busy) setBusy(true);
-        ProgressDialog.show('GUID Audit', message || '진행 중…');
-        ProgressDialog.update(percent, message || '', '');
+    onHost('guid:progress', (payload) => {
+        if (payload && payload.phase) {
+            handleExcelProgress(payload);
+        } else {
+            handleRunProgress(payload);
+        }
     });
 
     onHost('guid:done', (payload) => {
         ProgressDialog.hide();
         setBusy(false);
+        lastExcelPct = 0;
         const sum = payload?.summary || {};
         const det = payload?.detail || {};
         state.summary = {
@@ -153,9 +158,14 @@ export function renderGuid(root) {
         toast('검토 완료', 'ok');
     });
 
+    onHost('guid:warn', ({ message }) => {
+        if (message) toast(message, 'warn');
+    });
+
     onHost('guid:exported', ({ path }) => {
         ProgressDialog.hide();
         setBusy(false);
+        lastExcelPct = 0;
         if (path) {
             showExcelSavedDialog('엑셀로 저장했습니다.', path, (p) => post('excel:open', { path: p }));
         } else {
@@ -166,6 +176,7 @@ export function renderGuid(root) {
     const handleError = ({ message }) => {
         ProgressDialog.hide();
         setBusy(false);
+        lastExcelPct = 0;
         if (message) toast(message, 'err');
     };
     onHost('guid:error', handleError);
@@ -182,13 +193,20 @@ export function renderGuid(root) {
 
     function onRun() {
         if (state.busy) return;
+        const targets = state.rvtList.filter(p => state.rvtChecked.has(p));
+        if (state.rvtList.length > 0 && targets.length === 0) {
+            toast('선택된 RVT가 없습니다.', 'warn');
+            return;
+        }
+
+        const payload = {
+            mode: state.mode,
+            rvtPaths: state.rvtList.length === 0 ? [] : targets
+        };
+
         setBusy(true);
         if (state.mode !== 2) state.activeTab = 'summary';
         ProgressDialog.show('GUID Audit', '준비 중…');
-        const payload = {
-            mode: state.mode,
-            rvtPaths: state.rvtList
-        };
         post('guid:run', payload);
     }
 
@@ -198,6 +216,7 @@ export function renderGuid(root) {
         const which = state.activeTab === 'detail' ? 'detail' : 'summary';
         chooseExcelMode((mode) => {
             const excelMode = mode || 'fast';
+            lastExcelPct = 0;
             setBusy(true);
             ProgressDialog.show('엑셀 저장', '엑셀 파일을 만드는 중…');
             post('guid:export', { which, excelMode });
@@ -219,16 +238,37 @@ export function renderGuid(root) {
     }
 
     function renderRvtList() {
+        state.rvtChecked = new Set(state.rvtList.filter(p => state.rvtChecked.has(p)));
+        const master = rvtTable.querySelector('thead input[type="checkbox"]');
+        const allChecked = state.rvtList.length > 0 && state.rvtList.every(p => state.rvtChecked.has(p));
+        master.checked = allChecked;
+        master.indeterminate = state.rvtList.length > 0 && !allChecked && state.rvtChecked.size > 0;
+        master.onchange = () => {
+            if (master.checked) state.rvtChecked = new Set(state.rvtList);
+            else state.rvtChecked.clear();
+            renderRvtList();
+        };
+
         rvtBody.innerHTML = '';
         if (!state.rvtList.length) {
             const tr = document.createElement('tr');
-            const td = document.createElement('td'); td.colSpan = 3; td.textContent = '등록된 RVT가 없습니다.';
+            const td = document.createElement('td'); td.colSpan = 4; td.textContent = '등록된 RVT가 없습니다.';
             tr.append(td); rvtBody.append(tr); return;
         }
         state.rvtList.forEach((p, i) => {
             const tr = document.createElement('tr');
+            const tdCk = document.createElement('td');
+            const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
+            ck.onchange = () => {
+                if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
+                renderRvtList();
+            };
+            tdCk.append(ck);
             const name = p?.split(/[\\/]/).pop() || '(Doc)';
-            tr.innerHTML = `<td>${i + 1}</td><td>${name}</td><td class="path-cell">${p}</td>`;
+            const tdIdx = document.createElement('td'); tdIdx.textContent = i + 1;
+            const tdName = document.createElement('td'); tdName.textContent = name;
+            const tdPath = document.createElement('td'); tdPath.className = 'path-cell'; tdPath.textContent = p;
+            tr.append(tdCk, tdIdx, tdName, tdPath);
             rvtBody.append(tr);
         });
     }
@@ -263,7 +303,7 @@ export function renderGuid(root) {
             const fam = (row[idxFam] || '').toString();
             const key = path || rname;
             if (!map.has(key)) map.set(key, { name: rname, families: new Set() });
-            if (fam) map.get(key).families.Add(fam);
+            if (fam) map.get(key).families.add(fam);
         });
         Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
             const docItem = document.createElement('li');
@@ -381,6 +421,76 @@ export function renderGuid(root) {
             if (Array.isArray(arr)) return arr;
         } catch { }
         return [];
+    }
+
+    function handleRunProgress(payload) {
+        const percent = typeof payload?.pct === 'number' ? payload.pct : 0;
+        const message = payload?.text || '';
+        if (!state.busy && percent <= 0) return;
+        if (!state.busy) setBusy(true);
+        ProgressDialog.show('GUID Audit', message || '진행 중…');
+        ProgressDialog.update(percent, message || '', '');
+    }
+
+    function handleExcelProgress(payload) {
+        const phase = normalizeExcelPhase(payload?.phase);
+        const total = Number(payload?.total) || 0;
+        const current = Number(payload?.current) || 0;
+        const percent = computeExcelPercent(phase, current, total, payload?.phaseProgress);
+        const subtitle = buildExcelSubtitle(phase, current, total);
+        const detail = formatExcelDetail(phase, payload?.message);
+
+        const exporting = phase !== 'DONE' && phase !== 'ERROR';
+        if (!state.busy && exporting) setBusy(true);
+
+        ProgressDialog.show('엑셀 저장', subtitle || '엑셀 저장 중…');
+        ProgressDialog.update(percent, subtitle, detail);
+
+        if (!exporting) {
+            setTimeout(() => { ProgressDialog.hide(); lastExcelPct = 0; setBusy(false); }, 260);
+        }
+    }
+
+    function normalizeExcelPhase(phase) {
+        return String(phase || '').trim().toUpperCase() || 'EXCEL_WRITE';
+    }
+
+    function computeExcelPercent(phase, current, total, phaseProgress) {
+        const norm = normalizeExcelPhase(phase);
+        if (norm === 'DONE') { lastExcelPct = 100; return 100; }
+        if (norm === 'ERROR') return lastExcelPct;
+
+        const completed = ['EXCEL_INIT', 'EXCEL_WRITE', 'EXCEL_SAVE', 'AUTOFIT'].reduce((acc, key) => {
+            if (key === norm) return acc;
+            return acc + (EXCEL_PHASE_WEIGHT[key] || 0);
+        }, 0);
+        const weight = EXCEL_PHASE_WEIGHT[norm] || 0;
+        const ratio = total > 0 ? Math.max(0, Math.min(1, current / total)) : 0;
+        const staged = Math.max(ratio, clamp01(phaseProgress));
+        const pct = (completed + weight * staged) / (completed + weight) * 100;
+        lastExcelPct = Math.max(lastExcelPct, Math.min(100, pct));
+        return lastExcelPct;
+    }
+
+    function clamp01(v) { const n = Number(v); if (Number.isFinite(n)) return Math.max(0, Math.min(1, n)); return 0; }
+
+    function buildExcelSubtitle(phase, current, total) {
+        const norm = normalizeExcelPhase(phase);
+        switch (norm) {
+            case 'EXCEL_INIT': return '엑셀 워크북 준비 중';
+            case 'EXCEL_WRITE': return `엑셀 데이터 작성 중 (${current}/${Math.max(total, current || 1)})`;
+            case 'EXCEL_SAVE': return '엑셀 저장 중';
+            case 'AUTOFIT': return '열 너비 자동 조정 중…';
+            case 'DONE': return '엑셀 저장 완료';
+            case 'ERROR': return '엑셀 저장 오류';
+            default: return '엑셀 저장 중…';
+        }
+    }
+
+    function formatExcelDetail(phase, message) {
+        const norm = normalizeExcelPhase(phase);
+        if (norm === 'AUTOFIT') return '열 너비 자동 조정 중…';
+        return message || '';
     }
 }
 
