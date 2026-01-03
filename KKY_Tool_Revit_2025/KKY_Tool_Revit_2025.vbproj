@@ -138,6 +138,9 @@
 		<Compile Include="..\KKY_Tool_Revit_2019-2023\UI\Hub\UiBridgeExternalEvent.Export.vb">
 			<Link>UI\Hub\UiBridgeExternalEvent.Export.vb</Link>
 		</Compile>
+		<Compile Include="..\KKY_Tool_Revit_2019-2023\UI\Hub\ExcelProgressReporter.vb">
+			<Link>UI\Hub\ExcelProgressReporter.vb</Link>
+		</Compile>
 		<Compile Include="..\KKY_Tool_Revit_2019-2023\UI\Hub\UiBridgeExternalEvent.Connector.vb">
 			<Link>UI\Hub\UiBridgeExternalEvent.Connector.vb</Link>
 		</Compile>

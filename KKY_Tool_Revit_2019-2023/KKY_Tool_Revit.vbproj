@@ -70,12 +70,9 @@
 	<!-- 빌드 전에 API 경로 검증 -->
 	<Target Name="CheckRevitApiDir" BeforeTargets="ResolveReferences">
 		<Message Text="RevitYear=$(RevitYear), RevitApiDir=$(RevitApiDir)" Importance="high" />
-		<Error Condition="'$(RevitApiDir)'==''"
-			   Text="Local Revit API folder not found. Put RevitAPI.dll &amp; RevitAPIUI.dll under (one of) Compile\$(RevitYear)addin relative to this project folder." />
-		<Error Condition="!Exists('$(RevitApiDir)\RevitAPI.dll')"
-			   Text="RevitAPI.dll not found: $(RevitApiDir)\RevitAPI.dll (local Compile\$(RevitYear)addin)" />
-		<Error Condition="!Exists('$(RevitApiDir)\RevitAPIUI.dll')"
-			   Text="RevitAPIUI.dll not found: $(RevitApiDir)\RevitAPIUI.dll (local Compile\$(RevitYear)addin)" />
+		<Error Condition="'$(RevitApiDir)'==''" Text="Local Revit API folder not found. Put RevitAPI.dll &amp; RevitAPIUI.dll under (one of) Compile\$(RevitYear)addin relative to this project folder." />
+		<Error Condition="!Exists('$(RevitApiDir)\RevitAPI.dll')" Text="RevitAPI.dll not found: $(RevitApiDir)\RevitAPI.dll (local Compile\$(RevitYear)addin)" />
+		<Error Condition="!Exists('$(RevitApiDir)\RevitAPIUI.dll')" Text="RevitAPIUI.dll not found: $(RevitApiDir)\RevitAPIUI.dll (local Compile\$(RevitYear)addin)" />
 	</Target>
 
 	<!-- 불필요 기본항목 제거 -->
@@ -128,6 +125,7 @@
 		<Compile Include="Services\ExportPointsService.vb" />
 		<Compile Include="Services\ParamPropagateService.vb" />
 		<Compile Include="Services\SegmentPmsCheckService.vb" />
+		<Compile Include="UI\Hub\ExcelProgressReporter.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Export.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Connector.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Duplicate.vb" />
