@@ -79,17 +79,19 @@ Namespace Services
 
                     If mode = 2 Then
                         Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path,
-                                                              Function(cur, tot, famName)
+                                                              Function(cur, tot, famName) As Object
                                                                   Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
                                                                   ReportProgress(progress, total, i + 1, frac, $"[{rvtName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
+                                                                  Return Nothing
                                                               End Function)
                         summary = MergeTable(summary, famPack.Summary)
                         detail = MergeTable(detail, famPack.Detail)
                     Else
                         Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, rvtName, target.Path,
-                                                                     Function(cur, tot)
+                                                                     Function(cur, tot) As Object
                                                                          Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
                                                                          ReportProgress(progress, total, i + 1, frac, $"[{rvtName}] 프로젝트 파라미터 ({cur}/{tot})")
+                                                                         Return Nothing
                                                                      End Function)
                         summary = MergeTable(summary, proj)
                     End If
@@ -154,7 +156,7 @@ Namespace Services
         Private Shared Function SafeFileName(p As String) As String
             If String.IsNullOrWhiteSpace(p) Then Return "(Active/Unsaved)"
             Try
-                Return Path.GetFileName(p)
+                Return System.IO.Path.GetFileName(p)
             Catch
                 Return p
             End Try
@@ -163,7 +165,7 @@ Namespace Services
         Private Shared Function GetRvtName(doc As Document, path As String) As String
             If Not String.IsNullOrWhiteSpace(path) Then
                 Try
-                    Return Path.GetFileName(path)
+                    Return System.IO.Path.GetFileName(path)
                 Catch
                 End Try
             End If
@@ -287,9 +289,9 @@ Namespace Services
         '=========================================================
         ' 내부: Audit 로직 (기존 구현 이동)
         '=========================================================
-        Private Module SharedParamReader
+        Private NotInheritable Class SharedParamReader
 
-            Public Function ReadSharedParamNameGuidMap(app As Autodesk.Revit.ApplicationServices.Application) As Dictionary(Of String, List(Of Guid))
+            Public Shared Function ReadSharedParamNameGuidMap(app As Autodesk.Revit.ApplicationServices.Application) As Dictionary(Of String, List(Of Guid))
                 Dim defFile As DefinitionFile = Nothing
                 Try
                     defFile = app.OpenSharedParameterFile()
@@ -315,7 +317,7 @@ Namespace Services
                 Return map
             End Function
 
-            Private Function TryGetDefinitionGuid(d As Definition, ByRef g As Guid) As Boolean
+            Private Shared Function TryGetDefinitionGuid(d As Definition, ByRef g As Guid) As Boolean
                 g = Guid.Empty
                 If d Is Nothing Then Return False
 
@@ -334,16 +336,16 @@ Namespace Services
                 Return False
             End Function
 
-        End Module
+        End Class
 
         Private NotInheritable Class FamilyAuditPack
             Public Property Summary As DataTable
             Public Property Detail As DataTable
         End Class
 
-        Private Module Auditors
+        Private NotInheritable Class Auditors
 
-            Public Function MakeFailureSummaryTable(mode As Integer) As DataTable
+            Public Shared Function MakeFailureSummaryTable(mode As Integer) As DataTable
                 If mode = 1 Then
                     Dim dt As New DataTable("ProjectParams")
                     dt.Columns.Add("RvtName", GetType(String))
@@ -370,7 +372,7 @@ Namespace Services
                 End If
             End Function
 
-            Public Sub AddOpenFailRow(dt As DataTable, rvtName As String, rvtPath As String, scope As String, result As String, notes As String)
+            Public Shared Sub AddOpenFailRow(dt As DataTable, rvtName As String, rvtPath As String, scope As String, result As String, notes As String)
                 Dim r = dt.NewRow()
                 If dt.Columns.Contains("RvtName") Then r("RvtName") = If(rvtName, "")
                 If dt.Columns.Contains("Scope") Then r("Scope") = scope
@@ -386,11 +388,11 @@ Namespace Services
                 dt.Rows.Add(r)
             End Sub
 
-            Public Function RunProjectParameterAudit(doc As Document,
-                                                     fileMap As Dictionary(Of String, List(Of Guid)),
-                                                     rvtName As String,
-                                                     rvtPath As String,
-                                                     Optional progress As Action(Of Integer, Integer) = Nothing) As DataTable
+            Public Shared Function RunProjectParameterAudit(doc As Document,
+                                                            fileMap As Dictionary(Of String, List(Of Guid)),
+                                                            rvtName As String,
+                                                            rvtPath As String,
+                                                            Optional progress As Action(Of Integer, Integer) = Nothing) As DataTable
 
                 Dim dt As New DataTable("ProjectParams")
                 dt.Columns.Add("RvtName", GetType(String))
@@ -462,11 +464,11 @@ Namespace Services
                 Return dt
             End Function
 
-            Public Function RunFamilyAudit(doc As Document,
-                                           fileMap As Dictionary(Of String, List(Of Guid)),
-                                           rvtName As String,
-                                           rvtPath As String,
-                                           Optional progress As Action(Of Integer, Integer, String) = Nothing) As FamilyAuditPack
+            Public Shared Function RunFamilyAudit(doc As Document,
+                                                  fileMap As Dictionary(Of String, List(Of Guid)),
+                                                  rvtName As String,
+                                                  rvtPath As String,
+                                                  Optional progress As Action(Of Integer, Integer, String) = Nothing) As FamilyAuditPack
 
                 Dim pack As New FamilyAuditPack()
 
@@ -627,20 +629,20 @@ Namespace Services
                 Return pack
             End Function
 
-            Private Sub AddDetailRow(dt As DataTable,
-                                     rvtName As String,
-                                     rvtPath As String,
-                                     famName As String,
-                                     famCat As String,
-                                     pName As String,
-                                     isShared As String,
-                                     pGroup As String,
-                                     pType As String,
-                                     isInst As String,
-                                     famGuid As String,
-                                     fileGuid As String,
-                                     res As String,
-                                     notes As String)
+            Private Shared Sub AddDetailRow(dt As DataTable,
+                                            rvtName As String,
+                                            rvtPath As String,
+                                            famName As String,
+                                            famCat As String,
+                                            pName As String,
+                                            isShared As String,
+                                            pGroup As String,
+                                            pType As String,
+                                            isInst As String,
+                                            famGuid As String,
+                                            fileGuid As String,
+                                            res As String,
+                                            notes As String)
                 Dim r = dt.NewRow()
                 r("RvtName") = If(rvtName, "")
                 r("RvtPath") = If(rvtPath, "")
@@ -658,7 +660,7 @@ Namespace Services
                 dt.Rows.Add(r)
             End Sub
 
-            Private Function SafeParamElementName(pe As ParameterElement) As String
+            Private Shared Function SafeParamElementName(pe As ParameterElement) As String
                 Try
                     Return pe.Name
                 Catch
@@ -666,7 +668,7 @@ Namespace Services
                 End Try
             End Function
 
-            Private Function TryGetFamilyParameterGuid(fp As FamilyParameter, ByRef g As Guid) As Boolean
+            Private Shared Function TryGetFamilyParameterGuid(fp As FamilyParameter, ByRef g As Guid) As Boolean
                 g = Guid.Empty
                 If fp Is Nothing Then Return False
 
@@ -685,7 +687,7 @@ Namespace Services
                 Return False
             End Function
 
-        End Module
+        End Class
 
     End Class
 

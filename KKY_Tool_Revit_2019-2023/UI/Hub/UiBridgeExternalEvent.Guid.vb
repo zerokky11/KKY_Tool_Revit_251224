@@ -133,7 +133,7 @@ Namespace UI.Hub
             For Each r As DataRow In dt.Rows
                 Dim arr(cols.Count - 1) As Object
                 For i As Integer = 0 To cols.Count - 1
-                    arr(i) = SafeStr(r(cols(i)))
+                    arr(i) = SafeStrGuid(r(cols(i)))
                 Next
                 rows.Add(arr)
             Next
@@ -155,7 +155,7 @@ Namespace UI.Hub
             Return clone
         End Function
 
-        Private Shared Function SafeStr(o As Object) As String
+        Private Shared Function SafeStrGuid(o As Object) As String
             If o Is Nothing OrElse o Is DBNull.Value Then Return String.Empty
             Return Convert.ToString(o)
         End Function
