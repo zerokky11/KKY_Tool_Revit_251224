@@ -149,6 +149,10 @@ Namespace UI.Hub
             map.Add("segmentpms:prepare-mapping", "HandleSegmentPmsPrepareMapping")
             map.Add("segmentpms:run", "HandleSegmentPmsRun")
             map.Add("segmentpms:save-result", "HandleSegmentPmsSaveResult")
+            ' GUID Audit
+            map.Add("guid:add-files", "HandleGuidAddFiles")
+            map.Add("guid:run", "HandleGuidRun")
+            map.Add("guid:export", "HandleGuidExport")
 
             Dim methodName As String = Nothing
             If Not map.TryGetValue(name, methodName) Then

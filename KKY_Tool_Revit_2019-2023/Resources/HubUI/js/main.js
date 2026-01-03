@@ -8,6 +8,7 @@ import { renderConn } from './views/conn.js';
 import { renderExport } from './views/export.js';
 import { renderParamProp } from './views/paramprop.js';
 import { renderSegmentPms } from './views/segmentpms.js';
+import { renderGuid } from './views/guid.js';
 
 initTheme();
 
@@ -93,6 +94,7 @@ function route() {
         case 'export': return renderExport(targetRoot);
         case 'paramprop': return renderParamProp(targetRoot);
         case 'segmentpms': return renderSegmentPms(targetRoot);
+        case 'guid': return renderGuid(targetRoot);
         default: return renderHome(targetRoot);
     }
 }
