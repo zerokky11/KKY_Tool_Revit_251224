@@ -4,6 +4,7 @@ Imports System.Data
 Imports System.IO
 Imports System.Diagnostics
 Imports Autodesk.Revit.UI
+Imports KKY_Tool_Revit.Infrastructure
 Imports KKY_Tool_Revit.Services
 Imports NPOI.SS.UserModel
 Imports NPOI.XSSF.UserModel
@@ -12,15 +13,19 @@ Namespace UI.Hub
     Partial Public Class UiBridgeExternalEvent
 
         ' export:progress 페이로드
-        ' { phase: COLLECT|EXTRACT|EXCEL|DONE|ERROR, message, current, total, phaseProgress, percent }
+        ' { phase: COLLECT|EXTRACT|EXCEL_INIT|EXCEL_WRITE|EXCEL_SAVE|AUTOFIT|DONE|ERROR, message, current, total, phaseProgress, percent }
         Private Shared ReadOnly ExportProgressWeights As New Dictionary(Of String, Double)(StringComparer.OrdinalIgnoreCase) From {
             {"COLLECT", 0.1},
             {"EXTRACT", 0.75},
-            {"EXCEL", 0.15}
+            {"EXCEL_INIT", 0.01},
+            {"EXCEL_WRITE", 0.11},
+            {"EXCEL_SAVE", 0.02},
+            {"AUTOFIT", 0.01}
         }
-        Private Shared ReadOnly ExportProgressOrder As String() = {"COLLECT", "EXTRACT", "EXCEL"}
+        Private Shared ReadOnly ExportProgressOrder As String() = {"COLLECT", "EXTRACT", "EXCEL_INIT", "EXCEL_WRITE", "EXCEL_SAVE", "AUTOFIT"}
         Private Shared ExportProgressLastSent As DateTime = DateTime.MinValue
         Private Shared ExportProgressLastPct As Double = 0.0
+        Private Shared ExportProgressHadError As Boolean = False
         Private Shared ReadOnly ExportProgressGate As New Object()
 
         ' ========== Export: 폴더 선택 ==========
@@ -67,13 +72,16 @@ Namespace UI.Hub
                 If rows Is Nothing OrElse rows.Count = 0 Then rows = Export_LastExportRows
                 If rows Is Nothing Then rows = New List(Of Dictionary(Of String, Object))()
                 Dim total As Integer = rows.Count
-                ReportExportProgress("EXCEL", "엑셀 저장 준비 중", 0, total, 0.0, True)
+                ReportExportProgress("EXCEL_INIT", "엑셀 저장 준비 중", 0, total, 0.0, True)
 
                 Dim dt = BuildExportDataTableFromRows(rows, unit, True)
                 Dim todayToken As String = Date.Now.ToString("yyMMdd")
                 Dim defaultName As String = $"{todayToken}_좌표 추출 결과.xlsx"
                 Dim savePath As String = SaveExcelWithDialog(dt, defaultName, doAutoFit)
 
+                If ExportProgressHadError Then
+                    Return
+                End If
                 If Not String.IsNullOrEmpty(savePath) Then
                     ReportExportProgress("DONE", "엑셀 저장 완료", total, total, 1.0, True)
                     _host?.SendToWeb("export:saved", New With {.path = savePath})
@@ -82,7 +90,7 @@ Namespace UI.Hub
                 End If
             Catch ex As Exception
                 ReportExportProgress("ERROR", ex.Message, 0, 0, 0.0, True)
-                _host?.SendToWeb("revit:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                _host?.SendToWeb("host:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
             End Try
         End Sub
 
@@ -400,19 +408,44 @@ Namespace UI.Hub
             Dim ok = dlg.ShowDialog()
             If ok <> True Then Return String.Empty
             Dim path = dlg.FileName
+            Dim totalRows As Integer = dt.Rows.Count
+            ReportExportProgress("EXCEL_INIT", "엑셀 저장 준비 중", 0, totalRows, 0.0, True)
+
+            Dim lastWriteReport As DateTime = DateTime.UtcNow
+            Dim lastWrittenReported As Integer = 0
+            Dim reportWriteProgress =
+                Sub(cur As Integer, force As Boolean)
+                    Dim now = DateTime.UtcNow
+                    If Not force Then
+                        If cur - lastWrittenReported < 200 AndAlso (now - lastWriteReport).TotalMilliseconds < 200.0 Then
+                            Return
+                        End If
+                    End If
+                    lastWriteReport = now
+                    lastWrittenReported = cur
+                    Dim msg = $"엑셀 작성 중… ({cur}/{totalRows})"
+                    Dim ratio As Double = If(totalRows > 0, CDbl(cur) / CDbl(totalRows), 1.0)
+                    ReportExportProgress("EXCEL_WRITE", msg, cur, totalRows, ratio, True)
+                End Sub
             Try
-                Dim wb As IWorkbook = New XSSFWorkbook()
-                Dim sh = wb.CreateSheet("Export")
-                Dim xssf = TryCast(wb, XSSFWorkbook)
-                Dim baseStyle As ICellStyle = If(xssf IsNot Nothing, CreateBorderedStyle(xssf), Nothing)
-                Dim headerStyle As ICellStyle = If(xssf IsNot Nothing, CreateHeaderStyle(xssf, baseStyle), Nothing)
+                Dim wb As IWorkbook = Nothing
+                Dim sh As ISheet = Nothing
+                Dim xssf As XSSFWorkbook = Nothing
+                Dim baseStyle As ICellStyle = Nothing
+                Dim headerStyle As ICellStyle = Nothing
+
+                wb = New XSSFWorkbook()
+                sh = wb.CreateSheet("Export")
+                xssf = TryCast(wb, XSSFWorkbook)
+                baseStyle = If(xssf IsNot Nothing, CreateBorderedStyle(xssf), Nothing)
+                headerStyle = If(xssf IsNot Nothing, CreateHeaderStyle(xssf, baseStyle), Nothing)
 
                 ' 헤더
                 Dim hr = sh.CreateRow(0)
                 For c = 0 To dt.Columns.Count - 1
                     Dim cell = hr.CreateCell(c)
                     cell.SetCellValue(dt.Columns(c).ColumnName)
-                    If headerStyle IsNot Nothing Then cell.CellStyle = headerStyle
+                    If headerStyle Is Not Nothing Then cell.CellStyle = headerStyle
                 Next
                 ' 데이터
                 Dim rIndex = 1
@@ -422,17 +455,30 @@ Namespace UI.Hub
                         Dim v = If(dr.IsNull(c), "", Convert.ToString(dr(c), Globalization.CultureInfo.InvariantCulture))
                         Dim cell = rr.CreateCell(c)
                         cell.SetCellValue(v)
-                        If baseStyle IsNot Nothing Then cell.CellStyle = baseStyle
+                        If baseStyle Is Not Nothing Then cell.CellStyle = baseStyle
                     Next
+                    reportWriteProgress(rIndex - 1, False)
                 Next
-                ' 자동 너비
-                For c = 0 To dt.Columns.Count - 1 : sh.AutoSizeColumn(c) : Next
+                reportWriteProgress(totalRows, True)
+
+                ReportExportProgress("EXCEL_SAVE", "엑셀 파일 저장 중…", 0, Math.Max(totalRows, 1), 0.0, True)
                 Using fs As New FileStream(path, FileMode.Create, FileAccess.Write)
                     wb.Write(fs)
                 End Using
-                If doAutoFit Then ExcelCore.TryAutoFitWithExcel(path)
+                ReportExportProgress("EXCEL_SAVE", "엑셀 파일 저장 중…", totalRows, Math.Max(totalRows, 1), 1.0, True)
+
+                If doAutoFit Then
+                    ReportExportProgress("AUTOFIT", "열 너비 AutoFit 적용 중…", 0, 1, 0.0, True)
+                    ExcelCore.TryAutoFitWithExcel(path)
+                    ReportExportProgress("AUTOFIT", "열 너비 AutoFit 적용 중…", 1, 1, 1.0, True)
+                End If
+                Try
+                    wb.Close()
+                Catch
+                End Try
                 Return path
             Catch ex As Exception
+                ReportExportProgress("ERROR", "엑셀 저장 실패: " & ex.Message, 0, Math.Max(totalRows, 1), 0.0, True)
                 _host?.SendToWeb("host:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
                 Return String.Empty
             End Try
@@ -461,6 +507,7 @@ Namespace UI.Hub
             SyncLock ExportProgressGate
                 ExportProgressLastSent = DateTime.MinValue
                 ExportProgressLastPct = 0.0
+                ExportProgressHadError = False
             End SyncLock
         End Sub
 
@@ -475,6 +522,9 @@ Namespace UI.Hub
             Dim shouldSend As Boolean = False
             Dim now As DateTime = DateTime.UtcNow
             SyncLock ExportProgressGate
+                If normalized = "ERROR" Then
+                    ExportProgressHadError = True
+                End If
                 Dim computed As Double = ComputeExportPercent(normalized, current, total, phaseProgress, ExportProgressLastPct)
                 Dim elapsed As Double = (now - ExportProgressLastSent).TotalMilliseconds
                 Dim delta As Double = Math.Abs(computed - ExportProgressLastPct)
@@ -537,6 +587,7 @@ Namespace UI.Hub
         Private Shared Function NormalizeExportPhase(phase As String) As String
             Dim p As String = If(phase, String.Empty).Trim().ToUpperInvariant()
             If String.IsNullOrEmpty(p) Then Return "EXTRACT"
+            If p = "EXCEL" Then Return "EXCEL_WRITE"
             Return p
         End Function
 

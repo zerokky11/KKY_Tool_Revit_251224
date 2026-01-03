@@ -40,7 +40,7 @@ export function renderExport(root) {
       chooseExcelMode((mode) => {
         const payload = { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths(), excelMode: mode || 'fast' };
         setWorking(true);
-        startProgress('EXCEL', '엑셀 저장 준비 중…', state.rowsRaw.length);
+        startProgress('EXCEL_INIT', '엑셀 저장 준비 중…', state.rowsRaw.length);
         post('export:save-excel', payload);
       });
     });
@@ -267,8 +267,8 @@ function syncSaveState() {
     if (saveBtn) saveBtn.disabled = !state.rowsRaw.length || isWorking;
 }
 
-const PROGRESS_WEIGHTS = { COLLECT: 0.1, EXTRACT: 0.75, EXCEL: 0.15 };
-const PROGRESS_ORDER = ['COLLECT', 'EXTRACT', 'EXCEL'];
+const PROGRESS_WEIGHTS = { COLLECT: 0.1, EXTRACT: 0.75, EXCEL_INIT: 0.01, EXCEL_WRITE: 0.11, EXCEL_SAVE: 0.02, AUTOFIT: 0.01 };
+const PROGRESS_ORDER = ['COLLECT', 'EXTRACT', 'EXCEL_INIT', 'EXCEL_WRITE', 'EXCEL_SAVE', 'AUTOFIT'];
 let lastProgressPct = 0;
 let isWorking = false;
 
@@ -371,14 +371,19 @@ function computeProgressPercent(phase, current, total, phaseProgress) {
 }
 
 function normalizePhase(phase) {
-    return String(phase || '').trim().toUpperCase() || 'EXTRACT';
+    const p = String(phase || '').trim().toUpperCase() || 'EXTRACT';
+    if (p === 'EXCEL') return 'EXCEL_WRITE';
+    return p;
 }
 
 function phaseLabel(phase) {
     switch (normalizePhase(phase)) {
         case 'COLLECT': return '파일 준비';
         case 'EXTRACT': return '포인트 추출';
-        case 'EXCEL': return '엑셀 저장';
+        case 'EXCEL_INIT': return '엑셀 준비';
+        case 'EXCEL_WRITE': return '엑셀 작성';
+        case 'EXCEL_SAVE': return '엑셀 저장';
+        case 'AUTOFIT': return '열 AutoFit';
         case 'DONE': return '완료';
         case 'ERROR': return '오류';
         default: return '진행 중';
