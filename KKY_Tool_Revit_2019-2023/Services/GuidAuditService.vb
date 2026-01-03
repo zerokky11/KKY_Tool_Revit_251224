@@ -73,30 +73,32 @@ Namespace Services
                         Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "OPEN_FAIL", "문서 열기 실패")
                         summary = MergeTable(summary, fail)
                         Continue For
-                    End If
+                End If
 
-                    Dim rvtName As String = GetRvtName(doc, target.Path)
+                Dim rvtName As String = GetRvtName(doc, target.Path)
+                Dim captureIndex As Integer = i
+                Dim captureName As String = rvtName
 
-                    If mode = 2 Then
-                        Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path,
-                                                              Function(cur, tot, famName) As Object
-                                                                  Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
-                                                                  ReportProgress(progress, total, i + 1, frac, $"[{rvtName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
-                                                                  Return Nothing
-                                                              End Function)
-                        summary = MergeTable(summary, famPack.Summary)
-                        detail = MergeTable(detail, famPack.Detail)
-                    Else
-                        Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, rvtName, target.Path,
-                                                                     Function(cur, tot) As Object
-                                                                         Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
-                                                                         ReportProgress(progress, total, i + 1, frac, $"[{rvtName}] 프로젝트 파라미터 ({cur}/{tot})")
-                                                                         Return Nothing
-                                                                     End Function)
-                        summary = MergeTable(summary, proj)
-                    End If
+                If mode = 2 Then
+                    Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path,
+                                                          Function(cur, tot, famName) As Object
+                                                              Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
+                                                              ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
+                                                              Return Nothing
+                                                          End Function)
+                    summary = MergeTable(summary, famPack.Summary)
+                    detail = MergeTable(detail, famPack.Detail)
+                Else
+                    Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, rvtName, target.Path,
+                                                                 Function(cur, tot) As Object
+                                                                     Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
+                                                                     ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 프로젝트 파라미터 ({cur}/{tot})")
+                                                                     Return Nothing
+                                                                 End Function)
+                    summary = MergeTable(summary, proj)
+                End If
 
-                    ReportProgress(progress, total, i + 1, 1.0R, $"완료: {i + 1}/{total} {rvtName}")
+                ReportProgress(progress, total, captureIndex + 1, 1.0R, $"완료: {captureIndex + 1}/{total} {captureName}")
 
                 Catch ex As Exception
                     Dim fail = Auditors.MakeFailureSummaryTable(mode)
