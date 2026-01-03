@@ -15,12 +15,17 @@ Namespace UI.Hub
         ' { phase: COLLECT|EXTRACT|EXCEL|DONE|ERROR, message, current, total, phaseProgress, percent }
         Private Shared ReadOnly ExportProgressWeights As New Dictionary(Of String, Double)(StringComparer.OrdinalIgnoreCase) From {
             {"COLLECT", 0.1},
-            {"EXTRACT", 0.75},
-            {"EXCEL", 0.15}
+            {"EXTRACT", 0.7},
+            {"EXCEL", 0.05},
+            {"EXCEL_INIT", 0.02},
+            {"EXCEL_WRITE", 0.11},
+            {"EXCEL_SAVE", 0.02},
+            {"AUTOFIT", 0.0}
         }
-        Private Shared ReadOnly ExportProgressOrder As String() = {"COLLECT", "EXTRACT", "EXCEL"}
+        Private Shared ReadOnly ExportProgressOrder As String() = {"COLLECT", "EXTRACT", "EXCEL", "EXCEL_INIT", "EXCEL_WRITE", "EXCEL_SAVE", "AUTOFIT"}
         Private Shared ExportProgressLastSent As DateTime = DateTime.MinValue
         Private Shared ExportProgressLastPct As Double = 0.0
+        Private Shared ExportProgressLastRow As Integer = 0
         Private Shared ReadOnly ExportProgressGate As New Object()
 
         ' ========== Export: 폴더 선택 ==========
@@ -400,9 +405,13 @@ Namespace UI.Hub
             Dim ok = dlg.ShowDialog()
             If ok <> True Then Return String.Empty
             Dim path = dlg.FileName
-            Try
-                Dim wb As IWorkbook = New XSSFWorkbook()
-                Dim sh = wb.CreateSheet("Export")
+            Dim totalRows As Integer = dt.Rows.Count
+            Dim writtenRows As Integer = 0
+                ReportExportProgress("EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, 0.0, True)
+                LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.SaveExcelWithDialog")
+                Try
+                    Dim wb As IWorkbook = New XSSFWorkbook()
+                    Dim sh = wb.CreateSheet("Export")
                 Dim xssf = TryCast(wb, XSSFWorkbook)
                 Dim baseStyle As ICellStyle = If(xssf IsNot Nothing, CreateBorderedStyle(xssf), Nothing)
                 Dim headerStyle As ICellStyle = If(xssf IsNot Nothing, CreateHeaderStyle(xssf, baseStyle), Nothing)
@@ -424,16 +433,32 @@ Namespace UI.Hub
                         cell.SetCellValue(v)
                         If baseStyle IsNot Nothing Then cell.CellStyle = baseStyle
                     Next
+                    writtenRows += 1
+                    ReportExportProgress("EXCEL_WRITE", "엑셀 데이터 작성", writtenRows, totalRows, If(totalRows > 0, CDbl(writtenRows) / CDbl(totalRows), 1.0), False)
                 Next
+                ReportExportProgress("EXCEL_WRITE", "엑셀 데이터 작성", totalRows, totalRows, 1.0, True)
                 ' 자동 너비
-                For c = 0 To dt.Columns.Count - 1 : sh.AutoSizeColumn(c) : Next
+                If doAutoFit Then
+                    For c = 0 To dt.Columns.Count - 1
+                        sh.AutoSizeColumn(c)
+                    Next
+                End If
+                ReportExportProgress("EXCEL_SAVE", "엑셀 파일 저장", totalRows, totalRows, 1.0, True)
                 Using fs As New FileStream(path, FileMode.Create, FileAccess.Write)
                     wb.Write(fs)
                 End Using
-                If doAutoFit Then ExcelCore.TryAutoFitWithExcel(path)
+                Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+                If doAutoFit Then
+                    ReportExportProgress("AUTOFIT", autoFitMessage, totalRows, totalRows, 1.0, True)
+                    Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(path)
+                Else
+                    ReportExportProgress("AUTOFIT", autoFitMessage, totalRows, totalRows, 1.0, True)
+                End If
+                ReportExportProgress("DONE", "엑셀 저장 완료", totalRows, totalRows, 1.0, True)
                 Return path
             Catch ex As Exception
                 _host?.SendToWeb("host:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                ReportExportProgress("ERROR", ex.Message, writtenRows, totalRows, 0.0, True)
                 Return String.Empty
             End Try
         End Function
@@ -461,6 +486,7 @@ Namespace UI.Hub
             SyncLock ExportProgressGate
                 ExportProgressLastSent = DateTime.MinValue
                 ExportProgressLastPct = 0.0
+                ExportProgressLastRow = 0
             End SyncLock
         End Sub
 
@@ -478,10 +504,12 @@ Namespace UI.Hub
                 Dim computed As Double = ComputeExportPercent(normalized, current, total, phaseProgress, ExportProgressLastPct)
                 Dim elapsed As Double = (now - ExportProgressLastSent).TotalMilliseconds
                 Dim delta As Double = Math.Abs(computed - ExportProgressLastPct)
+                Dim deltaRows As Integer = Math.Abs(current - ExportProgressLastRow)
                 Dim important As Boolean = normalized = "DONE" OrElse normalized = "ERROR"
-                If force OrElse important OrElse elapsed >= 120.0 OrElse delta >= 1.0 Then
+                If force OrElse important OrElse elapsed >= 200.0 OrElse delta >= 1.0 OrElse deltaRows >= 200 Then
                     ExportProgressLastSent = now
                     ExportProgressLastPct = Math.Max(ExportProgressLastPct, computed)
+                    ExportProgressLastRow = current
                     pctToSend = ExportProgressLastPct
                     shouldSend = True
                 End If

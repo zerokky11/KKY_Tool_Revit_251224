@@ -531,7 +531,10 @@
     justify-content: flex-end;
 }
 
-.card-action-btn {
+.card-action-btn,
+.btn,
+.btn-primary,
+.btn.card-btn {
     border-radius: var(--radius-pill);
     padding: 9px 14px;
     border: 1px solid color-mix(in srgb, var(--accent) 75%, transparent);
@@ -539,15 +542,25 @@
     color: color-mix(in srgb, var(--accent) 82%, var(--text-main));
     font-weight: 600;
     transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 
-.card-action-btn:is(:hover, :focus-visible) {
+.card-action-btn:is(:hover, :focus-visible),
+.btn:is(:hover, :focus-visible),
+.btn-primary:is(:hover, :focus-visible),
+.btn.card-btn:is(:hover, :focus-visible) {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent-strong);
 }
 
-.card-action-btn:disabled {
+.card-action-btn:disabled,
+.btn:disabled,
+.btn-primary:disabled,
+.btn.card-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
 }

@@ -7,11 +7,15 @@
 // - 강조: Status별 톤은 Value1/Value2/Status 셀만 '캡슐형 테두리'로 표시
 
 import { clear, div, tdText, toast, setBusy, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const SKEY = 'kky_conn_opts';
 const INCH_TO_MM = 25.4;
 const MAX_PREVIEW_ROWS = 150;
+const EXCEL_PHASE_WEIGHT = { EXCEL_INIT: 0.05, EXCEL_WRITE: 0.85, EXCEL_SAVE: 0.08, AUTOFIT: 0.02, DONE: 1, ERROR: 1 };
+const EXCEL_PHASE_ORDER = ['EXCEL_INIT', 'EXCEL_WRITE', 'EXCEL_SAVE', 'AUTOFIT', 'DONE'];
+let lastExcelPct = 0;
 
 /* ---------- 옵션 ---------- */
 function loadOpts() {
@@ -55,6 +59,7 @@ export function renderConn(root) {
     totalCount: 0,
     extraParams: []
   };
+  let exporting = false;
   state.extraParams = parseExtraParams(opts.extraParams);
   const page = div('conn-page feature-shell');
 
@@ -66,9 +71,7 @@ export function renderConn(root) {
     <p class="feature-sub">허용범위, 단위, 파라미터명을 입력하고 파이프/덕트 커넥터 매칭을 진단합니다.</p>`;
 
   const run = cardBtn('검토 시작', onRun);
-  const save = cardBtn('엑셀 내보내기', () => {
-    chooseExcelMode((mode) => post('connector:save-excel', { excelMode: mode || 'fast' }));
-  });
+  const save = cardBtn('엑셀 내보내기', onExport);
   save.id = 'btnConnSave';
   save.disabled = true;
 
@@ -374,6 +377,14 @@ export function renderConn(root) {
     });
   }
 
+  function onExport() {
+    if (exporting) return;
+    exporting = true;
+    updateSaveDisabled();
+    run.disabled = true;
+    chooseExcelMode((mode) => post('connector:save-excel', { excelMode: mode || 'fast' }));
+  }
+
 
   onHost(({ ev, payload }) => {
     switch (ev) {
@@ -384,7 +395,15 @@ export function renderConn(root) {
         cardResults.style.display = 'block';
         applyIncomingRows(payload || {});
         break;
+      case 'connector:progress':
+        handleExcelProgress(payload || {});
+        break;
       case 'connector:saved': {
+        lastExcelPct = 0;
+        exporting = false;
+        run.disabled = false;
+        ProgressDialog.hide();
+        updateSaveDisabled();
         const p = (payload && payload.path) || '';
         if (p) {
           showExcelSavedDialog('엑셀 파일을 저장했습니다.', p, (path) => {
@@ -396,12 +415,97 @@ export function renderConn(root) {
         break;
       }
       case 'revit:error':
-        setBusy(false); toast((payload && payload.message) || '오류가 발생했습니다.', 'err', 3200); break;
+        setBusy(false);
+        exporting = false;
+        lastExcelPct = 0;
+        ProgressDialog.hide();
+        run.disabled = false;
+        updateSaveDisabled();
+        toast((payload && payload.message) || '오류가 발생했습니다.', 'err', 3200);
+        break;
+      case 'host:error':
+        setBusy(false);
+        exporting = false;
+        lastExcelPct = 0;
+        ProgressDialog.hide();
+        run.disabled = false;
+        updateSaveDisabled();
+        toast((payload && payload.message) || '호스트 오류가 발생했습니다.', 'err', 3200);
+        break;
       default: break;
     }
   });
 
   /* helpers */
+  function handleExcelProgress(payload) {
+    if (!payload) {
+      ProgressDialog.hide();
+      exporting = false;
+      run.disabled = false;
+      lastExcelPct = 0;
+      updateSaveDisabled();
+      return;
+    }
+    const phase = normalizeExcelPhase(payload.phase);
+    const total = Number(payload.total) || 0;
+    const current = Number(payload.current) || 0;
+    const percent = computeExcelPercent(phase, current, total, payload.phaseProgress);
+    const subtitle = buildExcelSubtitle(phase, current, total);
+    const detail = payload.message || '';
+
+    exporting = phase !== 'DONE' && phase !== 'ERROR';
+    run.disabled = exporting;
+    updateSaveDisabled();
+
+    ProgressDialog.show('커넥터 엑셀 저장', subtitle);
+    ProgressDialog.update(percent, subtitle, detail);
+
+    if (!exporting) {
+      setTimeout(() => { ProgressDialog.hide(); lastExcelPct = 0; }, 260);
+    }
+  }
+
+  function normalizeExcelPhase(phase) {
+    return String(phase || '').trim().toUpperCase() || 'EXCEL_WRITE';
+  }
+
+  function computeExcelPercent(phase, current, total, phaseProgress) {
+    const norm = normalizeExcelPhase(phase);
+    if (norm === 'DONE') { lastExcelPct = 100; return 100; }
+    if (norm === 'ERROR') return lastExcelPct;
+
+    const completed = EXCEL_PHASE_ORDER.reduce((acc, key) => {
+      if (key === norm) return acc;
+      return acc + (EXCEL_PHASE_WEIGHT[key] || 0);
+    }, 0);
+    const weight = EXCEL_PHASE_WEIGHT[norm] || 0;
+    const ratio = total > 0 ? Math.min(1, Math.max(0, current / total)) : 0;
+    const staged = Math.max(ratio, clamp01(phaseProgress));
+    const pct = Math.min(100, Math.max(lastExcelPct, (completed + weight * staged) * 100));
+    lastExcelPct = pct;
+    return pct;
+  }
+
+  function buildExcelSubtitle(phase, current, total) {
+    const labelMap = {
+      EXCEL_INIT: '엑셀 준비',
+      EXCEL_WRITE: '엑셀 작성',
+      EXCEL_SAVE: '파일 저장',
+      AUTOFIT: 'AutoFit',
+      DONE: '완료',
+      ERROR: '오류'
+    };
+    const label = labelMap[normalizeExcelPhase(phase)] || '엑셀 작업';
+    const count = total > 0 ? ` (${Math.max(current, 0)}/${total})` : '';
+    return `${label}${count}`;
+  }
+
+  function clamp01(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
+  }
+
   function normalizeStatus(row){
     return String((row && (row.Status ?? row.status)) || '').trim().toUpperCase();
   }
@@ -437,7 +541,7 @@ export function renderConn(root) {
 
   function updateSaveDisabled(){
     const saveBtn = document.getElementById('btnConnSave');
-    if (saveBtn) saveBtn.disabled = state.totalCount === 0;
+    if (saveBtn) saveBtn.disabled = state.totalCount === 0 || exporting;
   }
 
 

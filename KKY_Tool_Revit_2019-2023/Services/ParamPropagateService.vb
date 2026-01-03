@@ -922,7 +922,7 @@ Namespace Services
                     dt.Rows.Add(row)
                 Next
 
-                Infrastructure.ExcelCore.SaveXlsx(sfd.FileName, "Results", dt, doAutoFit)
+                Infrastructure.ExcelCore.SaveXlsx(sfd.FileName, "Results", dt, doAutoFit, "paramprop:progress")
                 Return sfd.FileName
             End Using
         End Function

@@ -2,6 +2,7 @@
 Imports System.Data
 Imports System.IO
 Imports System.Windows.Forms
+Imports KKY_Tool_Revit.UI.Hub
 Imports NPOI.SS.UserModel
 Imports NPOI.SS.Util
 Imports NPOI.XSSF.UserModel
@@ -12,7 +13,7 @@ Namespace Infrastructure
     Public Module ExcelCore
 
         ' 저장 대화상자 + 저장
-        Public Function PickAndSaveXlsx(sheetName As String, table As DataTable, Optional defaultFileName As String = Nothing, Optional doAutoFit As Boolean = False) As String
+        Public Function PickAndSaveXlsx(sheetName As String, table As DataTable, Optional defaultFileName As String = Nothing, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing) As String
             If table Is Nothing Then Return String.Empty
             Dim fileName As String = If(String.IsNullOrWhiteSpace(defaultFileName), $"{sheetName}.xlsx", defaultFileName)
             Using sfd As New SaveFileDialog()
@@ -23,7 +24,7 @@ Namespace Infrastructure
                 sfd.OverwritePrompt = True
                 sfd.RestoreDirectory = True
                 If sfd.ShowDialog() = DialogResult.OK Then
-                    SaveXlsx(sfd.FileName, sheetName, table, doAutoFit)
+                    SaveXlsx(sfd.FileName, sheetName, table, doAutoFit, progressChannel)
                     Return sfd.FileName
                 End If
             End Using
@@ -31,8 +32,12 @@ Namespace Infrastructure
         End Function
 
         ' 일반 테이블 저장
-        Public Sub SaveXlsx(filePath As String, sheetName As String, table As DataTable, Optional doAutoFit As Boolean = False)
+        Public Sub SaveXlsx(filePath As String, sheetName As String, table As DataTable, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
+            Dim totalRows As Integer = table.Rows.Count
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
+            UI.Hub.UiBridgeExternalEvent.LogAutoFitDecision(doAutoFit, "ExcelCore.SaveXlsx")
             Dim wb As IWorkbook = New XSSFWorkbook()
 
             Dim headFont = wb.CreateFont() : headFont.IsBold = True
@@ -69,20 +74,35 @@ Namespace Infrastructure
                     cc.SetCellValue(v)
                     cc.CellStyle = bodyStyle
                 Next
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", ri + 1, totalRows)
             Next
 
             If doAutoFit Then
                 AutoSizeAll(sh, table.Columns.Count)
             End If
 
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, filePath)
-            If doAutoFit Then TryAutoFitWithExcel(filePath)
+
+            Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+            If doAutoFit Then
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(filePath)
+            Else
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+            End If
+
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
             wb.Close()
         End Sub
 
         ' 요약 테이블(그룹 밴딩 + 그룹 글꼴 강조)
-        Public Sub SaveStyledSimple(outPath As String, sheetName As String, table As DataTable, groupColumnName As String, Optional doAutoFit As Boolean = False)
+        Public Sub SaveStyledSimple(outPath As String, sheetName As String, table As DataTable, groupColumnName As String, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
+            Dim totalRows As Integer = table.Rows.Count
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
+            UI.Hub.UiBridgeExternalEvent.LogAutoFitDecision(doAutoFit, "ExcelCore.SaveStyledSimple")
             Dim wb As IWorkbook = New XSSFWorkbook()
 
             Dim headFont = wb.CreateFont() : headFont.IsBold = True
@@ -155,14 +175,25 @@ Namespace Infrastructure
                         cc.CellStyle = st
                     End If
                 Next
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", ri + 1, totalRows)
             Next
 
             If doAutoFit Then
                 AutoSizeAll(sh, table.Columns.Count)
             End If
 
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, outPath)
-            If doAutoFit Then TryAutoFitWithExcel(outPath)
+
+            Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+            If doAutoFit Then
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(outPath)
+            Else
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+            End If
+
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
             wb.Close()
         End Sub
 

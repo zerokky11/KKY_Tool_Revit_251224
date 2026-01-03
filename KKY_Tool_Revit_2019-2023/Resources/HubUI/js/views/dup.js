@@ -1,5 +1,6 @@
 // Resources/HubUI/js/views/dup.js
 import { clear, div, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { ProgressDialog } from '../core/progress.js';
 import { onHost, post } from '../core/bridge.js';
 
 // Host 이벤트 (fix2 고정)
@@ -65,6 +66,9 @@ export function renderDup(root) {
   page.append(body);
   target.append(page);
 
+  const EXCEL_PHASE_WEIGHT = { EXCEL_INIT: 0.05, EXCEL_WRITE: 0.85, EXCEL_SAVE: 0.08, AUTOFIT: 0.02, DONE: 1, ERROR: 1 };
+  const EXCEL_PHASE_ORDER = ['EXCEL_INIT', 'EXCEL_WRITE', 'EXCEL_SAVE', 'AUTOFIT', 'DONE'];
+
   // ---- state ----
   let rows      = [];
   let groups    = [];
@@ -73,16 +77,24 @@ export function renderDup(root) {
   let waitTimer = null;
   let busy      = false;
   let exporting = false;
+  let lastExcelPct = 0;
 
   renderIntro(body);
 
   // 공통 오류
   onHost('revit:error', ({ message }) => {
     setLoading(false);
+    ProgressDialog.hide();
+    lastExcelPct = 0;
+    exporting = false;
+    exportBtn.disabled = rows.length === 0;
     toast(message || 'Revit 오류가 발생했습니다.', 'err', 3200);
   });
   onHost('host:error',  ({ message }) => {
     setLoading(false);
+    ProgressDialog.hide();
+    lastExcelPct = 0;
+    exporting = false;
     toast(message || '호스트 오류가 발생했습니다.', 'err', 3200);
   });
   onHost('host:warn',   ({ message }) => {
@@ -142,7 +154,14 @@ export function renderDup(root) {
       return;
     }
 
+    if (ev === 'dup:progress') {
+      handleExcelProgress(payload || {});
+      return;
+    }
+
     if (ev === EV_EXPORTED_A || ev === EV_EXPORTED_B) {
+      lastExcelPct = 0;
+      ProgressDialog.hide();
       const path = payload?.path || '';
       if (payload?.ok || path) {
         showExcelSavedDialog('엑셀로 내보냈습니다.', path, (p) => {
@@ -193,6 +212,72 @@ export function renderDup(root) {
     exporting = true;
     exportBtn.disabled = true;
     chooseExcelMode((mode) => post(EV_EXPORT_REQ, { excelMode: mode || 'fast' }));
+  }
+
+  function handleExcelProgress(payload) {
+    if (!payload) {
+      ProgressDialog.hide();
+      exporting = false;
+      exportBtn.disabled = rows.length === 0;
+      lastExcelPct = 0;
+      return;
+    }
+    const phase = normalizeExcelPhase(payload.phase);
+    const total = Number(payload.total) || 0;
+    const current = Number(payload.current) || 0;
+    const percent = computeExcelPercent(phase, current, total, payload.phaseProgress);
+    const subtitle = buildExcelSubtitle(phase, current, total);
+    const detail = payload.message || '';
+
+    exporting = phase !== 'DONE' && phase !== 'ERROR';
+    exportBtn.disabled = exporting || rows.length === 0;
+
+    ProgressDialog.show('중복검토 엑셀 저장', subtitle);
+    ProgressDialog.update(percent, subtitle, detail);
+
+    if (!exporting) {
+      setTimeout(() => { ProgressDialog.hide(); lastExcelPct = 0; }, 280);
+    }
+  }
+
+  function normalizeExcelPhase(phase) {
+    return String(phase || '').trim().toUpperCase() || 'EXCEL_WRITE';
+  }
+
+  function computeExcelPercent(phase, current, total, phaseProgress) {
+    const norm = normalizeExcelPhase(phase);
+    if (norm === 'DONE') { lastExcelPct = 100; return 100; }
+    if (norm === 'ERROR') return lastExcelPct;
+    const completed = EXCEL_PHASE_ORDER.reduce((acc, key) => {
+      if (key === norm) return acc;
+      return acc + (EXCEL_PHASE_WEIGHT[key] || 0);
+    }, 0);
+    const weight = EXCEL_PHASE_WEIGHT[norm] || 0;
+    const ratio = total > 0 ? Math.min(1, Math.max(0, current / total)) : 0;
+    const staged = Math.max(ratio, clamp01(phaseProgress));
+    const pct = Math.min(100, Math.max(lastExcelPct, (completed + weight * staged) * 100));
+    lastExcelPct = pct;
+    return pct;
+  }
+
+  function buildExcelSubtitle(phase, current, total) {
+    const labelMap = {
+      EXCEL_INIT: '엑셀 준비',
+      EXCEL_WRITE: '엑셀 작성',
+      EXCEL_SAVE: '파일 저장',
+      AUTOFIT: 'AutoFit',
+      DONE: '완료',
+      ERROR: '오류'
+    };
+    const label = labelMap[normalizeExcelPhase(phase)] || '엑셀 진행';
+    const count = total > 0 ? ` (${Math.max(current, 0)}/${total})` : '';
+    return `${label}${count}`;
+  }
+
+  function clamp01(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
   }
 
   // ===== 호스트 응답 처리 =====
