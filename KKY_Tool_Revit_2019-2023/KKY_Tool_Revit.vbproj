@@ -124,11 +124,13 @@
 		<Compile Include="Services\ConnectorDiagnosticsService.vb" />
 		<Compile Include="Services\ExportPointsService.vb" />
 		<Compile Include="Services\ParamPropagateService.vb" />
+		<Compile Include="Services\GuidAuditService.vb" />
 		<Compile Include="Services\SegmentPmsCheckService.vb" />
 		<Compile Include="UI\Hub\ExcelProgressReporter.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Export.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Connector.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Duplicate.vb" />
+		<Compile Include="UI\Hub\UiBridgeExternalEvent.Guid.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.SegmentPms.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.ParamProp.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Core.vb" />

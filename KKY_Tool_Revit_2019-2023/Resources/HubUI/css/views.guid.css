@@ -1,0 +1,169 @@
+.guid-page .feature-header {
+  align-items: flex-start;
+}
+
+.guid-mode {
+  display: grid;
+  gap: 8px;
+  margin-right: 12px;
+}
+
+.guid-mode .mode-btn {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .16s ease;
+}
+
+.guid-mode .mode-btn.is-active {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 10px 30px -18px var(--accent);
+}
+
+.guid-section {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--elev-1);
+}
+
+.guid-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.guid-rvt-table,
+.guid-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.guid-rvt-table th,
+.guid-rvt-table td,
+.guid-table th,
+.guid-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 13px;
+}
+
+.guid-rvt-table thead th,
+.guid-table thead th {
+  background: color-mix(in oklab, var(--panel) 90%, #ffffff 10%);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.guid-hint {
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.guid-tabs {
+  margin-top: 18px;
+  background: var(--panel);
+  border-radius: 14px;
+  box-shadow: var(--elev-1);
+}
+
+.guid-tab-buttons {
+  display: flex;
+  gap: 6px;
+  padding: 12px 12px 0 12px;
+}
+
+.guid-tab-buttons .tab-btn {
+  padding: 10px 14px;
+  border-radius: 12px 12px 0 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: all .14s ease;
+}
+
+.guid-tab-buttons .tab-btn.is-active {
+  background: var(--card);
+  border-color: var(--border);
+  border-bottom-color: transparent;
+}
+
+.guid-tab-buttons .tab-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.guid-tab-panel {
+  padding: 12px;
+}
+
+.guid-tab-panel.is-hidden {
+  display: none;
+}
+
+.guid-detail-wrap {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+}
+
+.guid-detail-nav {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in oklab, var(--panel) 95%, #ffffff 5%);
+  max-height: 480px;
+  overflow: auto;
+}
+
+.guid-nav-doc + .guid-nav-doc {
+  margin-top: 6px;
+}
+
+.guid-nav-fams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.nav-doc-btn,
+.nav-fam-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all .12s ease;
+}
+
+.nav-doc-btn.is-active,
+.nav-fam-btn.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.guid-detail-pane {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.path-cell {
+  color: var(--text-dim);
+  font-size: 12px;
+}
