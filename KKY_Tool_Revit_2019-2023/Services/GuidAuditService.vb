@@ -124,8 +124,18 @@ Namespace Services
         End Function
 
         ''' <summary>엑셀 저장 (AutoFit 사용 안 함)</summary>
-        Public Shared Function Export(table As DataTable, sheetName As String, Optional doAutoFit As Boolean = False) As String
+        Public Shared Function Export(table As DataTable,
+                                      sheetName As String,
+                                      Optional excelMode As String = "fast") As String
             If table Is Nothing OrElse table.Rows.Count = 0 Then Return String.Empty
+            Dim doAutoFit As Boolean = False
+            Try
+                If String.Equals(excelMode, "normal", StringComparison.OrdinalIgnoreCase) AndAlso table.Rows.Count <= 30000 Then
+                    doAutoFit = True
+                End If
+            Catch
+                doAutoFit = False
+            End Try
             Return ExcelCore.PickAndSaveXlsx(sheetName, table, $"{sheetName}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", doAutoFit)
         End Function
 
@@ -406,40 +416,77 @@ Namespace Services
                 dt.Columns.Add("Result", GetType(String))
                 dt.Columns.Add("Notes", GetType(String))
 
-                Dim pes = New FilteredElementCollector(doc).
-                    OfClass(GetType(ParameterElement)).
-                    Cast(Of ParameterElement)().
-                    ToList()
+                Dim bindings As BindingMap = doc.ParameterBindings
+                Dim iter As DefinitionBindingMapIterator = bindings.ForwardIterator()
+                iter.Reset()
 
-                Dim total As Integer = Math.Max(1, pes.Count)
                 Dim idx As Integer = 0
+                Dim total As Integer = 0
+                Try
+                    While iter.MoveNext()
+                        total += 1
+                    End While
+                Catch
+                    total = 0
+                End Try
 
-                For Each pe As ParameterElement In pes
+                Try
+                    iter.Reset()
+                Catch
+                End Try
+
+                While True
+                    Dim moved As Boolean = False
+                    Try
+                        moved = iter.MoveNext()
+                    Catch
+                        Exit While
+                    End Try
+                    If Not moved Then Exit While
+
                     idx += 1
-
                     If progress IsNot Nothing AndAlso (idx = 1 OrElse idx = total OrElse idx Mod 120 = 0) Then
-                        progress(idx, total)
+                        progress(idx, Math.Max(1, total))
                     End If
 
-                    Dim name As String = SafeParamElementName(pe)
+                    Dim def As Definition = Nothing
+                    Dim binding As ElementBinding = Nothing
+                    Try
+                        def = iter.Key
+                        binding = TryCast(iter.Current, ElementBinding)
+                    Catch
+                        def = Nothing
+                        binding = Nothing
+                    End Try
+
+                    If def Is Nothing Then Continue While
+
+                    Dim name As String = ""
+                    Try : name = def.Name : Catch : name = "" : End Try
+
                     Dim kind As String = "Project"
                     Dim projGuid As String = ""
                     Dim fileGuid As String = ""
                     Dim result As String = ""
                     Dim notes As String = ""
 
-                    If TypeOf pe Is SharedParameterElement Then
+                    Dim isShared As Boolean = TypeOf def Is ExternalDefinition
+                    If isShared Then
                         kind = "Shared"
-                        Dim spe = DirectCast(pe, SharedParameterElement)
-                        Dim gProj = spe.GuidValue
-                        projGuid = gProj.ToString()
+                        Dim gProj As Guid = Guid.Empty
+                        Try
+                            gProj = DirectCast(def, ExternalDefinition).GUID
+                        Catch
+                            gProj = Guid.Empty
+                        End Try
+                        projGuid = If(gProj = Guid.Empty, "", gProj.ToString())
 
                         Dim fileGuids As List(Of Guid) = Nothing
-                        If fileMap.TryGetValue(name, fileGuids) Then
+                        If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(name, fileGuids) Then
                             fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
                             If fileGuids.Count > 1 Then notes = "Shared parameter file에 동일 이름 GUID가 여러 개 존재"
 
-                            If fileGuids.Any(Function(x) x = gProj) Then
+                            If gProj <> Guid.Empty AndAlso fileGuids.Any(Function(x) x = gProj) Then
                                 result = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
                             Else
                                 result = "MISMATCH"
@@ -461,7 +508,7 @@ Namespace Services
                     r("Result") = result
                     r("Notes") = notes
                     dt.Rows.Add(r)
-                Next
+                End While
 
                 Return dt
             End Function

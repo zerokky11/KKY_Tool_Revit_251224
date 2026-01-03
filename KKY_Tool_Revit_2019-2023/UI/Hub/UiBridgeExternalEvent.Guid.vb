@@ -78,6 +78,12 @@ Namespace UI.Hub
                 which = ""
             End Try
             which = If(which, "").ToLowerInvariant()
+            Dim excelMode As String = "fast"
+            Try
+                Dim em = Convert.ToString(GetProp(payload, "excelMode"))
+                If Not String.IsNullOrWhiteSpace(em) Then excelMode = em
+            Catch
+            End Try
 
             Dim target As DataTable = Nothing
             Dim sheet As String = "Result"
@@ -102,7 +108,7 @@ Namespace UI.Hub
 
             Try
                 LogAutoFitDecision(False, "GuidAuditExport")
-                Dim saved = GuidAuditService.Export(target, sheet, False)
+                Dim saved = GuidAuditService.Export(target, sheet, excelMode)
                 If String.IsNullOrWhiteSpace(saved) Then
                     SendToWeb("guid:error", New With {.message = "엑셀 저장이 취소되었습니다."})
                     Return

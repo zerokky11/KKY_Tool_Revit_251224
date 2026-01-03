@@ -19,7 +19,8 @@ export function renderGuid(root) {
         activeTab: 'summary',
         activeDocKey: '',
         activeFamily: '',
-        busy: false
+        busy: false,
+        excelMode: 'fast'
     };
 
     const page = div('feature-shell guid-page');
@@ -33,12 +34,13 @@ export function renderGuid(root) {
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
     const modeToggle = buildModeToggle();
-    const runBtn = cardBtn('검토 실행', onRun);
-    const exportBtn = cardBtn('엑셀 저장', onExport);
+    const excelModeToggle = buildExcelModeToggle();
+    const runBtn = cardBtn('검토 시작', onRun);
+    const exportBtn = cardBtn('엑셀 저장...', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
     const rightActions = div('guid-header-actions');
-    rightActions.append(modeToggle, runBtn, exportBtn);
+    rightActions.append(modeToggle, excelModeToggle, runBtn, exportBtn);
     actions.append(rightActions);
     header.append(heading, actions);
     page.append(header);
@@ -53,7 +55,7 @@ export function renderGuid(root) {
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
     const rvtActions = div('feature-actions');
-    const btnAdd = cardBtn('RVT 추가…', () => post('guid:add-files', {}));
+    const btnAdd = cardBtn('RVT 추가...', () => post('guid:add-files', {}));
     const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; persistRvts(); renderRvtList(); });
     rvtActions.append(btnAdd, btnClear);
     rvtHeader.append(rvtTitle, rvtActions);
@@ -85,7 +87,7 @@ export function renderGuid(root) {
     const tabPanelDetail = div('guid-tab-panel is-hidden');
     const detailWrap = div('guid-detail-wrap');
     const navPane = div('guid-detail-nav feature-results-panel');
-    const navList = document.createElement('div'); navList.className = 'guid-nav-list';
+    const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
     navPane.append(navList);
     const detailPane = div('guid-detail-pane');
     const detailTableWrap = div('guid-table-wrap');
@@ -197,8 +199,9 @@ export function renderGuid(root) {
         if (!hasRowsForExport()) { toast('저장할 결과가 없습니다.', 'warn'); return; }
         setBusy(true);
         const which = state.activeTab === 'detail' ? 'detail' : 'summary';
+        const excelMode = state.excelMode || 'fast';
         ProgressDialog.show('엑셀 저장', '엑셀 파일을 만드는 중…');
-        post('guid:export', { which });
+        post('guid:export', { which, excelMode });
     }
 
     function buildModeToggle() {
@@ -212,6 +215,31 @@ export function renderGuid(root) {
             btnM1.classList.toggle('is-active', state.mode === 1);
             btnM2.classList.toggle('is-active', state.mode === 2);
         }
+        return wrap;
+    }
+
+    function buildExcelModeToggle() {
+        const wrap = div('guid-excelmode');
+        const label = document.createElement('span');
+        label.className = 'guid-excelmode-label';
+        label.textContent = '엑셀 저장 모드';
+        const btnFast = document.createElement('button');
+        btnFast.type = 'button';
+        btnFast.className = 'mode-btn is-active';
+        btnFast.textContent = '빠른(권장)';
+        const btnNormal = document.createElement('button');
+        btnNormal.type = 'button';
+        btnNormal.className = 'mode-btn';
+        btnNormal.textContent = '일반(열 너비 자동)';
+
+        const sync = () => {
+            btnFast.classList.toggle('is-active', state.excelMode === 'fast');
+            btnNormal.classList.toggle('is-active', state.excelMode === 'normal');
+        };
+
+        btnFast.onclick = () => { state.excelMode = 'fast'; sync(); };
+        btnNormal.onclick = () => { state.excelMode = 'normal'; sync(); };
+        wrap.append(label, btnFast, btnNormal);
         return wrap;
     }
 
@@ -244,7 +272,10 @@ export function renderGuid(root) {
     function buildNav() {
         navList.innerHTML = '';
         if (!state.detail.rows.length) {
-            navList.textContent = '상세 결과가 없습니다.';
+            const empty = document.createElement('li');
+            empty.className = 'guid-nav-empty';
+            empty.textContent = '상세 결과가 없습니다.';
+            navList.append(empty);
             return;
         }
         const idxPath = colIndex('RvtPath');
@@ -257,22 +288,29 @@ export function renderGuid(root) {
             const fam = (row[idxFam] || '').toString();
             const key = path || rname;
             if (!map.has(key)) map.set(key, { name: rname, families: new Set() });
-            if (fam) map.get(key).families.add(fam);
+            if (fam) map.get(key).families.Add(fam);
         });
         Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
-            const docItem = document.createElement('div');
+            const docItem = document.createElement('li');
             docItem.className = 'guid-nav-doc';
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-doc-btn'; btn.textContent = info.name;
-            btn.onclick = () => { state.activeDocKey = key; state.activeFamily = ''; paintDetail(); };
-            if (state.activeDocKey === key) btn.classList.add('is-active');
-            docItem.append(btn);
-            const famList = document.createElement('div'); famList.className = 'guid-nav-fams';
+            const docTitle = document.createElement('div');
+            docTitle.className = 'nav-doc-title';
+            docTitle.textContent = info.name;
+            docItem.append(docTitle);
+
+            const famList = document.createElement('ul');
+            famList.className = 'guid-nav-fams';
+
             Array.from(info.families).sort((a, b) => a.localeCompare(b)).forEach(f => {
-                const fb = document.createElement('button'); fb.type = 'button'; fb.className = 'nav-fam-btn'; fb.textContent = f;
-                fb.onclick = () => { state.activeDocKey = key; state.activeFamily = f; paintDetail(); };
-                if (state.activeDocKey === key && state.activeFamily === f) fb.classList.add('is-active');
-                famList.append(fb);
+                const li = document.createElement('li');
+                const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f;
+                btn.title = f;
+                btn.onclick = () => { state.activeDocKey = key; state.activeFamily = f; paintDetail(); };
+                if (state.activeDocKey === key && state.activeFamily === f) btn.classList.add('is-active');
+                li.append(btn);
+                famList.append(li);
             });
+
             docItem.append(famList);
             navList.append(docItem);
         });
