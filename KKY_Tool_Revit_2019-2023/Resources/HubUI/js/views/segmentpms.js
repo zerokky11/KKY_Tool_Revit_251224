@@ -95,11 +95,11 @@ export function renderSegmentPms(root) {
   exHeader.innerHTML = '<h3>1단계: 추출 (RVT → Excel)</h3>';
   const exActions = div('segmentpms-actions-row');
   const btnAddRvt = cardBtn('RVT 파일 추가', () => post('segmentpms:rvt-pick-files', {}));
-  const btnAddFolder = cardBtn('RVT 폴더 추가', () => post('segmentpms:rvt-pick-folder', {}));
+  const btnAddFolder = cardBtn('폴더 선택', () => post('segmentpms:rvt-pick-folder', {}));
   const btnRemoveSel = cardBtn('선택 제거', removeCheckedRvt);
   const btnClearAll = cardBtn('등록 목록 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvt(); renderRvtList(); updateButtons(); });
   const btnExtract = cardBtn('추출 시작', onExtract);
-  const btnSaveExtract = cardBtn('추출 결과 저장(Excel)', () => chooseExcelMode((mode) => post('segmentpms:save-extract', { excelMode: mode || 'fast' })));
+  const btnSaveExtract = cardBtn('엑셀 내보내기', () => chooseExcelMode((mode) => post('segmentpms:save-extract', { excelMode: mode || 'fast' })));
   exActions.append(btnAddRvt, btnAddFolder, btnRemoveSel, btnClearAll, btnExtract, btnSaveExtract);
   exHeader.append(exActions);
 
@@ -123,7 +123,7 @@ export function renderSegmentPms(root) {
   const btnRegisterPms = cardBtn('PMS 등록/업데이트', () => { setBusy(true, 'PMS 불러오는 중'); state.busy = true; updateButtons(); post('segmentpms:register-pms', {}); });
   const btnPrepare = cardBtn('매핑 준비', onPrepareMapping);
   const btnRun = cardBtn('검토 시작', onRun);
-  const btnSave = cardBtn('검토 결과 저장', () => {
+  const btnSave = cardBtn('엑셀 내보내기', () => {
     if (!state.results) { toast('저장할 결과가 없습니다.', 'err'); return; }
     chooseExcelMode((mode) => post('segmentpms:save-result', { excelMode: mode || 'fast' }));
   });

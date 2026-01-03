@@ -34,7 +34,7 @@ export function renderGuid(root) {
 
     const modeToggle = buildModeToggle();
     const runBtn = cardBtn('검토 시작', onRun);
-    const exportBtn = cardBtn('엑셀 저장...', onExport);
+    const exportBtn = cardBtn('엑셀 내보내기', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
     const rightActions = div('guid-header-actions');
@@ -53,7 +53,7 @@ export function renderGuid(root) {
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
     const rvtActions = div('feature-actions');
-    const btnAdd = cardBtn('RVT 추가...', () => post('guid:add-files', {}));
+    const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', {}));
     const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; persistRvts(); renderRvtList(); });
     rvtActions.append(btnAdd, btnClear);
     rvtHeader.append(rvtTitle, rvtActions);
