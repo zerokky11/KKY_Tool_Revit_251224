@@ -1,5 +1,7 @@
 .guid-page {
   gap: 14px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .guid-body {
@@ -22,7 +24,7 @@
   padding: 6px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-subtle);
 }
 
 .guid-mode .mode-btn {
@@ -46,6 +48,8 @@
 
 .guid-panel {
   gap: 10px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-soft);
 }
 
 .guid-rvt-table,
@@ -88,7 +92,7 @@
 .guid-tab-buttons {
   display: flex;
   gap: 6px;
-  padding: 8px 8px 0 8px;
+  padding: 10px 10px 0 10px;
 }
 
 .guid-tab-buttons .tab-btn {
@@ -100,6 +104,7 @@
   cursor: pointer;
   transition: all .14s ease;
   white-space: nowrap;
+  font-weight: 600;
 }
 
 .guid-tab-buttons .tab-btn.is-active {
@@ -118,6 +123,10 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: var(--surface-card);
+  border-radius: 0 0 12px 12px;
+  border: 1px solid var(--border-soft);
+  border-top: none;
 }
 
 .guid-tab-panel.is-hidden {
@@ -129,6 +138,7 @@
   gap: 12px;
   align-items: stretch;
   min-height: 360px;
+  flex-wrap: wrap;
 }
 
 .guid-table-wrap {
@@ -136,6 +146,7 @@
   border-radius: 12px;
   overflow: auto;
   max-height: 520px;
+  background: var(--surface-subtle);
 }
 
 .guid-detail-nav {
@@ -144,6 +155,10 @@
   max-height: 520px;
   overflow: auto;
   gap: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface-card);
 }
 
 .guid-nav-doc + .guid-nav-doc {
@@ -159,13 +174,14 @@
 
 .nav-doc-btn,
 .nav-fam-btn {
-  border: 1px solid var(--border);
-  background: var(--card);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-subtle);
   color: var(--text);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: var(--radius-pill);
+  padding: 7px 10px;
   cursor: pointer;
   transition: all .12s ease;
+  white-space: nowrap;
 }
 
 .nav-doc-btn.is-active,
@@ -183,4 +199,17 @@
 .path-cell {
   color: var(--text-dim);
   font-size: 12px;
+}
+
+.guid-table th {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.guid-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.guid-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
