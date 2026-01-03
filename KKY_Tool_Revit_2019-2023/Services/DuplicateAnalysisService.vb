@@ -7,7 +7,7 @@ Imports Autodesk.Revit.DB.Mechanical
 Imports Autodesk.Revit.DB.Plumbing
 Imports Autodesk.Revit.DB.Electrical
 Imports Autodesk.Revit.UI
-Imports Infrastructure   ' ElementIdCompat.IntValue / FromInt 사용
+Imports KKY_Tool_Revit.Infrastructure   ' ElementIdCompat.IntValue / FromInt 사용
 
 
 Namespace Services

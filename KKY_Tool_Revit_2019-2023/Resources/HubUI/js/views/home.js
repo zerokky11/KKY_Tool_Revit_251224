@@ -2,7 +2,7 @@
 import { clear, div, debounce, toast } from '../core/dom.js';
 import { getFavs, toggleFav, getLast, saveCardOrder, getCardOrder } from '../core/state.js';
 
-const CATS = { dup: '검토', conn: '진단', export: '좌표', paramprop: '속성', segmentpms: '속성' };
+const CATS = { dup: '검토', conn: '진단', export: '좌표', paramprop: '속성', segmentpms: '속성', guid: '속성' };
 const QKEY = 'kky_q';
 const LAYOUT_KEY = 'kky_home_layout';
 const CAT_KEY = 'kky_home_cat';
@@ -20,7 +20,8 @@ const CARD_GROUP = {
     conn: 'property',
     export: 'utility',
     paramprop: 'property',
-    segmentpms: 'property'
+    segmentpms: 'property',
+    guid: 'property'
 };
 
 const FEATURE_META = {
@@ -53,6 +54,12 @@ const FEATURE_META = {
         title: 'Segment ↔ PMS 매핑',
         subtitle: 'PipeType Segment Check',
         desc: 'PipeType별 Segment를 PMS Segment와 매핑 후 ND별 ID/OD를 검증합니다.'
+    },
+    guid: {
+        icon: 'guid',
+        title: 'GUID Audit',
+        subtitle: 'Shared Parameter GUID Checker',
+        desc: '프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교하여 불일치를 찾습니다.'
     }
 };
 
@@ -437,6 +444,8 @@ function featureIcon(kind) {
             return '<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M9 25.5h15" stroke-linecap="round"/><path d="M13 28V8.5" stroke-linecap="round"/><path d="M13 8.5 17.5 4" stroke-linecap="round"/><circle cx="21.5" cy="12" r="3.3"/><path d="M21.5 8.7a6.5 6.5 0 0 1 6.5 6.5" stroke-linecap="round"/><path d="M18.8 14.5 26 21.7" stroke-linecap="round"/><path d="M9 18l4 4" stroke-linecap="round"/></svg>';
         case 'paramprop':
             return '<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M7 24.5h18" stroke-linecap="round"/><rect x="8.5" y="9" width="8" height="8" rx="1.8"/><rect x="15.5" y="14.5" width="8" height="8" rx="1.8"/><path d="M16 13.5 20.5 9" stroke-linecap="round"/><path d="M12.5 17.5 17 13" stroke-linecap="round"/></svg>';
+        case 'guid':
+            return '<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M8.5 7.5h15v10.5h-15z"/><path d="M11 13.5h2.5" stroke-linecap="round"/><path d="M16 13.5h5" stroke-linecap="round"/><path d="M11 10.5h10" stroke-linecap="round"/><rect x="7.5" y="19.5" width="7" height="5" rx="1.2"/><rect x="17.5" y="19.5" width="7" height="5" rx="1.2"/></svg>';
         default:
             return '<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="6"/></svg>';
     }
