@@ -32,9 +32,9 @@ const FEATURE_META = {
     },
     conn: {
         icon: 'conn',
-        title: '위치기반 Parameter값 일치 여부 검토',
+        title: 'Parameter 연속성 검토',
         subtitle: 'Connector Diagnostics',
-        desc: '허용범위 내에 있는 객체(커넥터)를 대상으로 지정, Parameter 값을 검토합니다..'
+        desc: '허용범위 내에 있는 객체(커넥터)를 대상으로 Parameter 값 연속성을 검토합니다..'
     },
     export: {
         icon: 'export',
