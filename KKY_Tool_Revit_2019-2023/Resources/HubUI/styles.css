@@ -154,3 +154,14 @@ body[data-theme="dark"].is-busy::before { background:rgba(0,0,0,0.45); }
 .segmentpms-progress-fill { height:100%; width:0%; background: linear-gradient(90deg, #4cc9f0, #4361ee); transition: width 0.25s ease; }
 .segmentpms-progress-pct { text-align:right; font-weight:700; font-size:13px; margin-top:4px; color:#1f2937; height:18px; line-height:18px; }
 [data-theme="dark"] .segmentpms-progress-pct { color:#f1f5f9; }
+
+/* Excel mode dialog */
+.excelmode-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.38); display:flex; align-items:center; justify-content:center; z-index:12000; }
+[data-theme="dark"] .excelmode-backdrop { background:rgba(0,0,0,0.5); }
+.excelmode-dialog { width:420px; max-width:90vw; background:#fff; color:#111; border-radius:12px; padding:18px; box-shadow:0 12px 32px rgba(0,0,0,0.3); }
+[data-theme="dark"] .excelmode-dialog { background:#1f2430; color:#e5e7eb; box-shadow:0 12px 32px rgba(0,0,0,0.5); }
+.excelmode-title { font-size:16px; font-weight:700; margin-bottom:8px; }
+.excelmode-desc { font-size:13px; color:#4b5563; margin-bottom:14px; line-height:1.5; }
+[data-theme="dark"] .excelmode-desc { color:#c7cbd4; }
+.excelmode-actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.excelmode-actions .btn { min-width:120px; }

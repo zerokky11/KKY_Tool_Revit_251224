@@ -1,4 +1,4 @@
-import { clear, div, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
+import { clear, div, toast, setBusy, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
@@ -78,7 +78,7 @@ export function renderSegmentPms(root) {
   const btnRemoveSel = cardBtn('선택 제거', removeCheckedRvt);
   const btnClearAll = cardBtn('등록 목록 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvt(); renderRvtList(); updateButtons(); });
   const btnExtract = cardBtn('추출 시작', onExtract);
-  const btnSaveExtract = cardBtn('추출 결과 저장(Excel)', () => post('segmentpms:save-extract', {}));
+  const btnSaveExtract = cardBtn('추출 결과 저장(Excel)', () => chooseExcelMode((mode) => post('segmentpms:save-extract', { excelMode: mode || 'fast' })));
   exActions.append(btnAddRvt, btnAddFolder, btnRemoveSel, btnClearAll, btnExtract, btnSaveExtract);
   exHeader.append(exActions);
 
@@ -104,7 +104,7 @@ export function renderSegmentPms(root) {
   const btnRun = cardBtn('검토 시작', onRun);
   const btnSave = cardBtn('검토 결과 저장', () => {
     if (!state.results) { toast('저장할 결과가 없습니다.', 'err'); return; }
-    post('segmentpms:save-result', {});
+    chooseExcelMode((mode) => post('segmentpms:save-result', { excelMode: mode || 'fast' }));
   });
   chActions.append(btnLoadExtract, btnRegisterPms, btnPrepare, btnRun, btnSave);
   chHeader.append(chActions);

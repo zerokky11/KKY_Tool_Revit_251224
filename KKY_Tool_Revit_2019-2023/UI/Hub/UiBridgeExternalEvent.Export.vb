@@ -61,6 +61,7 @@ Namespace UI.Hub
         Private Sub HandleExportSaveExcel(payload As Dictionary(Of String, Object))
             ResetExportProgressState()
             Try
+                Dim doAutoFit As Boolean = ParseExcelMode(payload)
                 Dim unit As String = ExtractUnit(payload)
                 Dim rows = TryGetRowsFromPayload(payload)
                 If rows Is Nothing OrElse rows.Count = 0 Then rows = Export_LastExportRows
@@ -71,7 +72,7 @@ Namespace UI.Hub
                 Dim dt = BuildExportDataTableFromRows(rows, unit, True)
                 Dim todayToken As String = Date.Now.ToString("yyMMdd")
                 Dim defaultName As String = $"{todayToken}_좌표 추출 결과.xlsx"
-                Dim savePath As String = SaveExcelWithDialog(dt, defaultName)
+                Dim savePath As String = SaveExcelWithDialog(dt, defaultName, doAutoFit)
 
                 If Not String.IsNullOrEmpty(savePath) Then
                     ReportExportProgress("DONE", "엑셀 저장 완료", total, total, 1.0, True)
@@ -390,7 +391,7 @@ Namespace UI.Hub
         End Function
 
         ' DataTable을 저장 대화상자로 엑셀로 저장하고 경로 반환(취소 시 "")
-        Private Shared Function SaveExcelWithDialog(dt As DataTable, Optional defaultName As String = "export.xlsx") As String
+        Private Shared Function SaveExcelWithDialog(dt As DataTable, Optional defaultName As String = "export.xlsx", Optional doAutoFit As Boolean = False) As String
             If dt Is Nothing OrElse dt.Columns.Count = 0 Then Return String.Empty
             Dim dlg As New Microsoft.Win32.SaveFileDialog() With {
                 .Filter = "Excel (*.xlsx)|*.xlsx",
@@ -429,6 +430,7 @@ Namespace UI.Hub
                 Using fs As New FileStream(path, FileMode.Create, FileAccess.Write)
                     wb.Write(fs)
                 End Using
+                If doAutoFit Then ExcelCore.TryAutoFitWithExcel(path)
                 Return path
             Catch ex As Exception
                 _host?.SendToWeb("host:error", New With {.message = "엑셀 저장 실패: " & ex.Message})

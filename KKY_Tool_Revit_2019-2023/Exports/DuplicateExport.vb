@@ -14,20 +14,20 @@ Namespace Exports
 
     Public Module DuplicateExport
 
-        Public Function Save(rows As System.Collections.IEnumerable) As String
+        Public Function Save(rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False) As String
             Dim mapped = MapRows(rows)
             Dim dt = BuildSimpleTable(mapped)
-            Return ExcelCore.PickAndSaveXlsx("Duplicates (Simple)", dt, "Duplicates.xlsx")
+            Return ExcelCore.PickAndSaveXlsx("Duplicates (Simple)", dt, "Duplicates.xlsx", doAutoFit)
         End Function
 
-        Public Sub Save(outPath As String, rows As System.Collections.IEnumerable)
-            Export(outPath, rows)
+        Public Sub Save(outPath As String, rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False)
+            Export(outPath, rows, doAutoFit)
         End Sub
 
-        Public Sub Export(outPath As String, rows As System.Collections.IEnumerable)
+        Public Sub Export(outPath As String, rows As System.Collections.IEnumerable, Optional doAutoFit As Boolean = False)
             Dim mapped = MapRows(rows)
             Dim dt = BuildSimpleTable(mapped)
-            ExcelCore.SaveStyledSimple(outPath, "Duplicates (Simple)", dt, "Group")
+            ExcelCore.SaveStyledSimple(outPath, "Duplicates (Simple)", dt, "Group", doAutoFit)
         End Sub
 
         Private Function MapRows(rows As System.Collections.IEnumerable) As System.Collections.Generic.List(Of DupRowDto)

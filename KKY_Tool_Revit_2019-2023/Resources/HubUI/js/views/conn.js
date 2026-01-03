@@ -6,7 +6,7 @@
 // - UX: 결과영역은 검토 시작 전 숨김 → [검토 시작] 후 안내문 노출 → 데이터 수신 시 필터+표 노출
 // - 강조: Status별 톤은 Value1/Value2/Status 셀만 '캡슐형 테두리'로 표시
 
-import { clear, div, tdText, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
+import { clear, div, tdText, toast, setBusy, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
 import { post, onHost } from '../core/bridge.js';
 
 const SKEY = 'kky_conn_opts';
@@ -66,9 +66,9 @@ export function renderConn(root) {
     <p class="feature-sub">허용범위, 단위, 파라미터명을 입력하고 파이프/덕트 커넥터 매칭을 진단합니다.</p>`;
 
   const run = cardBtn('검토 시작', onRun);
-  const save = cardBtn('엑셀 내보내기', () =>
-    post('connector:save-excel', { })
-  );
+  const save = cardBtn('엑셀 내보내기', () => {
+    chooseExcelMode((mode) => post('connector:save-excel', { excelMode: mode || 'fast' }));
+  });
   save.id = 'btnConnSave';
   save.disabled = true;
 

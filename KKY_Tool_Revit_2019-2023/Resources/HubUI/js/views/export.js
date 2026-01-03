@@ -1,4 +1,4 @@
-import { clear, div, tdText, toast, showExcelSavedDialog } from '../core/dom.js';
+import { clear, div, tdText, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
@@ -37,10 +37,12 @@ export function renderExport(root) {
     });
     preview.id = 'btnExPreview'; preview.disabled = true;
     const save = cardBtn('엑셀 내보내기', () => {
-      const payload = { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths() };
-      setWorking(true);
-      startProgress('EXCEL', '엑셀 저장 준비 중…', state.rowsRaw.length);
-      post('export:save-excel', payload);
+      chooseExcelMode((mode) => {
+        const payload = { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths(), excelMode: mode || 'fast' };
+        setWorking(true);
+        startProgress('EXCEL', '엑셀 저장 준비 중…', state.rowsRaw.length);
+        post('export:save-excel', payload);
+      });
     });
     save.id = 'btnExSave'; save.disabled = true;
     const actions = div('feature-actions');

@@ -359,7 +359,8 @@ Namespace UI.Hub
                 Dim outPath As String = sfd.FileName
 
                 ' 엑셀 저장
-                Exports.DuplicateExport.Save(outPath, _lastRows.Cast(Of Object)())
+                Dim doAutoFit As Boolean = ParseExcelMode(payload)
+                Exports.DuplicateExport.Save(outPath, _lastRows.Cast(Of Object)(), doAutoFit)
 
                 SendToWeb("dup:exported", New With {.path = outPath, .ok = True, .token = token})
             Catch ioEx As IOException

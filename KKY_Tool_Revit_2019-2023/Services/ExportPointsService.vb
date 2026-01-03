@@ -91,7 +91,7 @@ Namespace Services
             Return list
         End Function
 
-        Public Shared Function ExportToExcel(uiapp As UIApplication, files As Object, Optional unit As String = "ft") As String
+        Public Shared Function ExportToExcel(uiapp As UIApplication, files As Object, Optional unit As String = "ft", Optional doAutoFit As Boolean = False) As String
             Dim rows = Run(uiapp, files)
 
             Dim desktop As String = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
@@ -111,7 +111,7 @@ Namespace Services
             })
 
             Dim dt As DataTable = BuildTable(headers, data)
-            ExcelCore.SaveXlsx(outPath, "Points", dt)
+            ExcelCore.SaveXlsx(outPath, "Points", dt, doAutoFit)
 
             Return outPath
         End Function

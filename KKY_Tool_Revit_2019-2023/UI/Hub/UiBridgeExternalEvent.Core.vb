@@ -221,6 +221,19 @@ Namespace UI.Hub
             End Try
         End Sub
 
+        Friend Shared Function ParseExcelMode(payload As Object) As Boolean
+            Try
+                Dim mode As String = Nothing
+                If payload IsNot Nothing Then
+                    Dim prop = GetProp(payload, "excelMode")
+                    If prop IsNot Nothing Then mode = Convert.ToString(prop)
+                End If
+                If String.Equals(mode, "normal", StringComparison.OrdinalIgnoreCase) Then Return True
+            Catch
+            End Try
+            Return False
+        End Function
+
         ' payload 속성 안전 추출(익명/Dictionary 수용)
         Private Shared Function GetProp(obj As Object, prop As String) As Object
             If obj Is Nothing Then Return Nothing
