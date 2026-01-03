@@ -1,50 +1,57 @@
-.guid-page .feature-header {
-  align-items: flex-start;
+.guid-page {
+  gap: 14px;
+}
+
+.guid-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.guid-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .guid-mode {
-  display: grid;
-  gap: 8px;
-  margin-right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .guid-mode .mode-btn {
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
+  padding: 8px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-soft);
   font-weight: 600;
   cursor: pointer;
-  transition: all .16s ease;
+  transition: all .12s ease;
+  white-space: nowrap;
 }
 
 .guid-mode .mode-btn.is-active {
   border-color: var(--accent);
-  color: #fff;
-  background: var(--accent);
-  box-shadow: 0 10px 30px -18px var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 6px 14px -10px var(--accent);
 }
 
-.guid-section {
-  margin-top: 16px;
-  padding: 16px;
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow: var(--elev-1);
-}
-
-.guid-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+.guid-panel {
+  gap: 10px;
 }
 
 .guid-rvt-table,
 .guid-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 10px;
 }
 
 .guid-rvt-table th,
@@ -81,7 +88,7 @@
 .guid-tab-buttons {
   display: flex;
   gap: 6px;
-  padding: 12px 12px 0 12px;
+  padding: 8px 8px 0 8px;
 }
 
 .guid-tab-buttons .tab-btn {
@@ -92,6 +99,7 @@
   color: var(--text);
   cursor: pointer;
   transition: all .14s ease;
+  white-space: nowrap;
 }
 
 .guid-tab-buttons .tab-btn.is-active {
@@ -107,6 +115,9 @@
 
 .guid-tab-panel {
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .guid-tab-panel.is-hidden {
@@ -114,18 +125,25 @@
 }
 
 .guid-detail-wrap {
-  display: grid;
-  grid-template-columns: 320px 1fr;
+  display: flex;
   gap: 12px;
+  align-items: stretch;
+  min-height: 360px;
+}
+
+.guid-table-wrap {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: auto;
+  max-height: 520px;
 }
 
 .guid-detail-nav {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px;
-  background: color-mix(in oklab, var(--panel) 95%, #ffffff 5%);
-  max-height: 480px;
+  flex: 0 0 320px;
+  max-width: 420px;
+  max-height: 520px;
   overflow: auto;
+  gap: 8px;
 }
 
 .guid-nav-doc + .guid-nav-doc {
@@ -158,9 +176,8 @@
 }
 
 .guid-detail-pane {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
+  flex: 1;
+  min-width: 0;
 }
 
 .path-cell {

@@ -37,29 +37,36 @@ export function renderGuid(root) {
     const exportBtn = cardBtn('엑셀 저장', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
-    actions.append(modeToggle, runBtn, exportBtn);
+    const rightActions = div('guid-header-actions');
+    rightActions.append(modeToggle, runBtn, exportBtn);
+    actions.append(rightActions);
     header.append(heading, actions);
     page.append(header);
 
+    const body = div('guid-body');
+
     // RVT section
-    const rvtSection = div('guid-section');
+    const rvtSection = div('feature-results-panel guid-panel');
     const rvtHeader = document.createElement('div');
-    rvtHeader.className = 'section-header';
-    rvtHeader.innerHTML = '<h3>대상 RVT 목록</h3>';
-    const rvtActions = div('guid-actions');
+    rvtHeader.className = 'feature-results-head';
+    const rvtTitle = document.createElement('div');
+    rvtTitle.className = 'guid-title';
+    rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
+    const rvtActions = div('feature-actions');
     const btnAdd = cardBtn('RVT 추가…', () => post('guid:add-files', {}));
     const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; persistRvts(); renderRvtList(); });
     rvtActions.append(btnAdd, btnClear);
-    rvtHeader.append(rvtActions);
+    rvtHeader.append(rvtTitle, rvtActions);
+    const rvtTableWrap = div('guid-table-wrap');
     const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
     rvtTable.innerHTML = '<thead><tr><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
-    const hint = div('guid-hint'); hint.textContent = '비우면 현재 활성 문서만 검토합니다.';
-    rvtSection.append(rvtHeader, rvtTable, hint);
-    page.append(rvtSection);
+    rvtTableWrap.append(rvtTable);
+    rvtSection.append(rvtHeader, rvtTableWrap);
+    body.append(rvtSection);
 
     // Result tabs
-    const tabs = div('guid-tabs');
+    const tabs = div('guid-tabs feature-results-panel');
     const tabBtns = div('guid-tab-buttons');
     const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'tab-btn is-active'; btnTabSummary.textContent = '요약';
     const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'tab-btn'; btnTabDetail.textContent = '패밀리/파라미터';
@@ -67,29 +74,34 @@ export function renderGuid(root) {
     tabs.append(tabBtns);
 
     const tabPanelSummary = div('guid-tab-panel');
+    const summaryTableWrap = div('guid-table-wrap');
     const summaryTable = document.createElement('table'); summaryTable.className = 'guid-table';
     const summaryHead = document.createElement('thead');
     const summaryBody = document.createElement('tbody');
     summaryTable.append(summaryHead, summaryBody);
-    tabPanelSummary.append(summaryTable);
+    summaryTableWrap.append(summaryTable);
+    tabPanelSummary.append(summaryTableWrap);
 
     const tabPanelDetail = div('guid-tab-panel is-hidden');
     const detailWrap = div('guid-detail-wrap');
-    const navPane = div('guid-detail-nav');
+    const navPane = div('guid-detail-nav feature-results-panel');
     const navList = document.createElement('div'); navList.className = 'guid-nav-list';
     navPane.append(navList);
     const detailPane = div('guid-detail-pane');
+    const detailTableWrap = div('guid-table-wrap');
     const detailTable = document.createElement('table'); detailTable.className = 'guid-table';
     const detailHead = document.createElement('thead');
     const detailBody = document.createElement('tbody');
     detailTable.append(detailHead, detailBody);
-    detailPane.append(detailTable);
+    detailTableWrap.append(detailTable);
+    detailPane.append(detailTableWrap);
     detailWrap.append(navPane, detailPane);
     tabPanelDetail.append(detailWrap);
 
     tabs.append(tabPanelSummary, tabPanelDetail);
-    page.append(tabs);
+    body.append(tabs);
 
+    page.append(body);
     target.append(page);
 
     renderRvtList();
@@ -372,7 +384,7 @@ function samePath(a, b) {
 function cardBtn(text, onClick) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'card-btn';
+    btn.className = 'btn card-btn';
     btn.textContent = text;
     btn.onclick = onClick;
     return btn;
