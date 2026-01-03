@@ -274,7 +274,7 @@ Namespace UI.Hub
                 Dim mismatchCount As Integer = CountMismatches(filteredTotal)
 
                 Dim doAutoFit As Boolean = ParseExcelMode(payload)
-                ExcelProgressReporter.Reset("connector:progress")
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset("connector:progress")
                 Dim saved As String = SaveRowsToExcel(filteredTotal, mismatchCount, _connectorExtraParams, doAutoFit, "connector:progress")
 
                 SendToWeb("connector:saved", New With {.path = saved})
@@ -452,8 +452,8 @@ Namespace UI.Hub
             Dim count As Integer = If(mismatchCount < 0, CountMismatches(totalRows), mismatchCount)
             Dim defaultName As String = $"{todayToken}_커넥터기반 속성값 검토 결과_{count}개.xlsx"
             Dim totalCount As Integer = If(totalRows, New List(Of Dictionary(Of String, Object))()).Count
-            ExcelProgressReporter.Reset(progressChannel)
-            ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalCount, Nothing, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalCount, Nothing, True)
             LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.SaveRowsToExcel")
             Dim written As Integer = 0
 
@@ -485,22 +485,22 @@ Namespace UI.Hub
                             wb.Write(fs)
                         End Using
                     End Using
-                    ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalCount, totalCount, Nothing, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalCount, totalCount, Nothing, True)
                     Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
                     If doAutoFit Then
-                        ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
+                        Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
                         Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
                     Else
-                        ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
+                        Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
                     End If
-                    ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalCount, totalCount, 100.0R, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalCount, totalCount, 100.0R, True)
                     Return savePath
                 End Using
             Catch ex As OperationCanceledException
-                ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장이 취소되었습니다.", written, totalCount, 100.0R, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장이 취소되었습니다.", written, totalCount, 100.0R, True)
                 Return String.Empty
             Catch ex As Exception
-                ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalCount, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalCount, Nothing, True)
                 Throw
             End Try
         End Function
@@ -828,7 +828,7 @@ Namespace UI.Hub
                         cell.CellStyle = styleToUse
                     Next
                     written += 1
-                    ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
                 Next
             End If
 

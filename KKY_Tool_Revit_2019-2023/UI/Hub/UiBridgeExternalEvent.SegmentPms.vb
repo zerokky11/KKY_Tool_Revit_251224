@@ -489,26 +489,27 @@ Namespace UI.Hub
                     Return
                 End If
 
+                Dim mapTable As DataTable = Nothing
+                Dim compareTable As DataTable = Nothing
+                If _segmentPmsLastResult IsNot Nothing AndAlso _segmentPmsLastResult.RunResult IsNot Nothing Then
+                    mapTable = _segmentPmsLastResult.RunResult.MapTable
+                    compareTable = _segmentPmsLastResult.RunResult.CompareTable
+                End If
+
+                Dim compareRows = If(compareTable, DictListToDataTable(CoerceRowsToDictList(GetDictValue(pd, "compare")), "SizeCompare"))
+                Dim mapRows = If(mapTable, DictListToDataTable(CoerceRowsToDictList(GetDictValue(pd, "map")), "PipeTypeSegmentMap"))
+
+                Dim classRows = SegmentPmsCheckService.BuildClassCheckRows(mapRows)
+                Dim sizeRows = SegmentPmsCheckService.BuildSizeCheckRows(compareRows)
+                Dim routingRows = SegmentPmsCheckService.BuildRoutingClassRows(_extractData)
+
                 Dim totalRowsCount As Integer = classRows.Count + sizeRows.Count + routingRows.Count
                 Dim written As Integer = 0
                 Try
-                    ExcelProgressReporter.Reset("segmentpms:progress")
-                    ExcelProgressReporter.Report("segmentpms:progress", "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRowsCount, Nothing, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset("segmentpms:progress")
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRowsCount, Nothing, True)
                     LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.HandleSegmentPmsSaveResult")
                     Dim wb As IWorkbook = New XSSFWorkbook()
-                    Dim mapTable As DataTable = Nothing
-                    Dim compareTable As DataTable = Nothing
-                    If _segmentPmsLastResult IsNot Nothing AndAlso _segmentPmsLastResult.RunResult IsNot Nothing Then
-                        mapTable = _segmentPmsLastResult.RunResult.MapTable
-                        compareTable = _segmentPmsLastResult.RunResult.CompareTable
-                    End If
-
-                    Dim compareRows = If(compareTable, DictListToDataTable(CoerceRowsToDictList(GetDictValue(pd, "compare")), "SizeCompare"))
-                    Dim mapRows = If(mapTable, DictListToDataTable(CoerceRowsToDictList(GetDictValue(pd, "map")), "PipeTypeSegmentMap"))
-
-                    Dim classRows = SegmentPmsCheckService.BuildClassCheckRows(mapRows)
-                    Dim sizeRows = SegmentPmsCheckService.BuildSizeCheckRows(compareRows)
-                    Dim routingRows = SegmentPmsCheckService.BuildRoutingClassRows(_extractData)
 
                     If classRows.Count = 0 AndAlso sizeRows.Count = 0 AndAlso routingRows.Count = 0 Then
                         SendToWeb("segmentpms:error", New With {.message = "먼저 검토를 실행하세요."})
@@ -523,21 +524,21 @@ Namespace UI.Hub
                         savePath = System.IO.Path.GetFullPath(dlg.FileName)
                     Catch
                     End Try
-                    ExcelProgressReporter.Report("segmentpms:progress", "EXCEL_SAVE", "파일 저장 중", written, totalRowsCount, Nothing, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "EXCEL_SAVE", "파일 저장 중", written, totalRowsCount, Nothing, True)
                     SaveWorkbookSafe(wb, savePath)
                     WaitForFileReady(savePath)
                     wb.Close()
                     Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
                     If doAutoFit Then
-                        ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
+                        Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
                         Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
                     Else
-                        ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
+                        Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
                     End If
-                    ExcelProgressReporter.Report("segmentpms:progress", "DONE", "엑셀 저장 완료", written, totalRowsCount, 100.0R, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "DONE", "엑셀 저장 완료", written, totalRowsCount, 100.0R, True)
                     SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
-                    ExcelProgressReporter.Report("segmentpms:progress", "ERROR", ex.Message, written, totalRowsCount, Nothing, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "ERROR", ex.Message, written, totalRowsCount, Nothing, True)
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})
                 End Try
             End Using
@@ -722,7 +723,7 @@ Namespace UI.Hub
                 Next
                 rIndex += 1
                 written += 1
-                ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
             Next
 
             ExcelCore.ApplyStandardSheetStyle(wb, sh, headerRowIndex:=0, autoFilter:=True, freezeTopRow:=True, borderAll:=True, autoFit:=doAutoFit)

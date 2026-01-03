@@ -407,11 +407,11 @@ Namespace UI.Hub
             Dim path = dlg.FileName
             Dim totalRows As Integer = dt.Rows.Count
             Dim writtenRows As Integer = 0
-            ReportExportProgress("EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, 0.0, True)
-            LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.SaveExcelWithDialog")
-            Try
-                Dim wb As IWorkbook = New XSSFWorkbook()
-                Dim sh = wb.CreateSheet("Export")
+                ReportExportProgress("EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, 0.0, True)
+                LogAutoFitDecision(doAutoFit, "UiBridgeExternalEvent.SaveExcelWithDialog")
+                Try
+                    Dim wb As IWorkbook = New XSSFWorkbook()
+                    Dim sh = wb.CreateSheet("Export")
                 Dim xssf = TryCast(wb, XSSFWorkbook)
                 Dim baseStyle As ICellStyle = If(xssf IsNot Nothing, CreateBorderedStyle(xssf), Nothing)
                 Dim headerStyle As ICellStyle = If(xssf IsNot Nothing, CreateHeaderStyle(xssf, baseStyle), Nothing)

@@ -35,8 +35,8 @@ Namespace Infrastructure
         Public Sub SaveXlsx(filePath As String, sheetName As String, table As DataTable, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
             Dim totalRows As Integer = table.Rows.Count
-            ExcelProgressReporter.Reset(progressChannel)
-            ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
             UI.Hub.UiBridgeExternalEvent.LogAutoFitDecision(doAutoFit, "ExcelCore.SaveXlsx")
             Dim wb As IWorkbook = New XSSFWorkbook()
 
@@ -74,25 +74,25 @@ Namespace Infrastructure
                     cc.SetCellValue(v)
                     cc.CellStyle = bodyStyle
                 Next
-                ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", ri + 1, totalRows)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", ri + 1, totalRows)
             Next
 
             If doAutoFit Then
                 AutoSizeAll(sh, table.Columns.Count)
             End If
 
-            ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, filePath)
 
             Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
             If doAutoFit Then
-                ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
                 Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(filePath)
             Else
-                ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
             End If
 
-            ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
             wb.Close()
         End Sub
 
@@ -100,8 +100,8 @@ Namespace Infrastructure
         Public Sub SaveStyledSimple(outPath As String, sheetName As String, table As DataTable, groupColumnName As String, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
             Dim totalRows As Integer = table.Rows.Count
-            ExcelProgressReporter.Reset(progressChannel)
-            ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
             UI.Hub.UiBridgeExternalEvent.LogAutoFitDecision(doAutoFit, "ExcelCore.SaveStyledSimple")
             Dim wb As IWorkbook = New XSSFWorkbook()
 
@@ -175,25 +175,25 @@ Namespace Infrastructure
                         cc.CellStyle = st
                     End If
                 Next
-                ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", ri + 1, totalRows)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", ri + 1, totalRows)
             Next
 
             If doAutoFit Then
                 AutoSizeAll(sh, table.Columns.Count)
             End If
 
-            ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, outPath)
 
             Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
             If doAutoFit Then
-                ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
                 Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(outPath)
             Else
-                ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
             End If
 
-            ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
             wb.Close()
         End Sub
 

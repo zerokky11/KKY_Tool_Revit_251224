@@ -270,8 +270,8 @@ Namespace Services
                 End If
             Next
             Dim written As Integer = 0
-            ExcelProgressReporter.Reset(progressChannel)
-            ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
             UI.Hub.UiBridgeExternalEvent.LogAutoFitDecision(doAutoFit, "SegmentPmsCheckService.SaveDataSetToXlsx")
             Try
                 Dim wb As IWorkbook = New XSSFWorkbook()
@@ -280,19 +280,19 @@ Namespace Services
                 If ds.Tables.Contains(TableRules) Then WriteSheet(wb, TableRules, ds.Tables(TableRules), progressChannel, written, totalRows)
                 If ds.Tables.Contains(TableSizes) Then WriteSheet(wb, TableSizes, ds.Tables(TableSizes), progressChannel, written, totalRows)
                 If ds.Tables.Contains(TableRouting) Then WriteSheet(wb, TableRouting, ds.Tables(TableRouting), progressChannel, written, totalRows)
-                ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", written, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", written, totalRows, Nothing, True)
                 SaveWorkbookSafely(wb, path)
                 wb.Close()
                 Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
                 If doAutoFit Then
-                    ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, written, totalRows, Nothing, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, written, totalRows, Nothing, True)
                     Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(path)
                 Else
-                    ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, written, totalRows, Nothing, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, written, totalRows, Nothing, True)
                 End If
-                ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", written, totalRows, 100.0R, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", written, totalRows, 100.0R, True)
             Catch ex As Exception
-                ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalRows, Nothing, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalRows, Nothing, True)
                 Throw
             End Try
         End Sub
@@ -2339,7 +2339,7 @@ Namespace Services
                 Next
                 r += 1
                 written += 1
-                ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", written, totalRows)
             Next
         End Sub
 
