@@ -559,7 +559,7 @@ Namespace Services
                             Try : paramGroup = fp.Definition.ParameterGroup.ToString() : Catch : paramGroup = "" : End Try
 
                             Dim paramType As String = ""
-                            Try : paramType = fp.Definition.ParameterType.ToString() : Catch : paramType = "" : End Try
+                            Try : paramType = GetParamTypeName(fp.Definition) : Catch : paramType = "" : End Try
 
                             Dim isInst As String = ""
                             Try : isInst = If(fp.IsInstance, "Y", "N") : Catch : isInst = "" : End Try
@@ -687,6 +687,41 @@ Namespace Services
                 End If
 
                 Return False
+            End Function
+
+            Private Shared Function GetParamTypeName(def As Definition) As String
+                If def Is Nothing Then
+                    Return String.Empty
+                End If
+
+                Try
+                    Dim p = def.GetType().GetProperty("ParameterType", BindingFlags.Public Or BindingFlags.Instance)
+                    If p IsNot Nothing Then
+                        Dim v = p.GetValue(def, Nothing)
+                        If v IsNot Nothing Then Return v.ToString()
+                    End If
+                Catch
+                End Try
+
+                Try
+                    Dim m = def.GetType().GetMethod("GetDataType", BindingFlags.Public Or BindingFlags.Instance)
+                    If m IsNot Nothing Then
+                        Dim v = m.Invoke(def, Nothing)
+                        If v IsNot Nothing Then Return v.ToString()
+                    End If
+                Catch
+                End Try
+
+                Try
+                    Dim p2 = def.GetType().GetProperty("DataType", BindingFlags.Public Or BindingFlags.Instance)
+                    If p2 IsNot Nothing Then
+                        Dim v = p2.GetValue(def, Nothing)
+                        If v IsNot Nothing Then Return v.ToString()
+                    End If
+                Catch
+                End Try
+
+                Return String.Empty
             End Function
 
         End Class
