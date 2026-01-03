@@ -311,7 +311,8 @@ Namespace UI.Hub
                     _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts, AddressOf ReportProgress)
                     _lastExtractPath = dlg.FileName
                     ReportProgress(files.Count, files.Count, "save", "엑셀 저장 중", dlg.FileName)
-                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
+                    Dim doAutoFit As Boolean = ParseExcelMode(payload)
+                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit)
                     WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
                     ReportProgress(files.Count, files.Count, "done", "추출 완료", dlg.FileName)
@@ -337,7 +338,8 @@ Namespace UI.Hub
                     Return
                 End If
                 Try
-                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName)
+                    Dim doAutoFit As Boolean = ParseExcelMode(payload)
+                    SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit)
                     _lastExtractPath = dlg.FileName
                     WaitForFileReady(dlg.FileName)
                     Dim summary = BuildExtractSummary(_extractData)
@@ -478,6 +480,7 @@ Namespace UI.Hub
 
         Private Sub HandleSegmentPmsSaveResult(app As UIApplication, payload As Object)
             Dim pd = ParsePayloadDict(payload)
+            Dim doAutoFit As Boolean = ParseExcelMode(payload)
             Using dlg As New SaveFileDialog()
                 dlg.Filter = "Excel (*.xlsx)|*.xlsx"
                 dlg.FileName = "SegmentPmsResult.xlsx"
@@ -518,6 +521,7 @@ Namespace UI.Hub
                     SaveWorkbookSafe(wb, savePath)
                     WaitForFileReady(savePath)
                     wb.Close()
+                    If doAutoFit Then Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
                     SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
                     SendToWeb("segmentpms:error", New With {.message = ex.Message})

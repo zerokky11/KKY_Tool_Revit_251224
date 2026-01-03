@@ -27,7 +27,15 @@ Namespace Services
             Public Property TrueNorth As Double
         End Class
 
-        Public Shared Function Run(uiapp As UIApplication, files As Object) As IList(Of Row)
+        Public Class ProgressInfo
+            Public Property Phase As String
+            Public Property Message As String
+            Public Property Current As Integer
+            Public Property Total As Integer
+            Public Property PhaseProgress As Double
+        End Class
+
+        Public Shared Function Run(uiapp As UIApplication, files As Object, Optional progress As Action(Of ProgressInfo) = Nothing) As IList(Of Row)
             Dim app = uiapp.Application
             Dim list As New List(Of Row)()
 
@@ -42,9 +50,19 @@ Namespace Services
             End If
             paths = paths.Distinct().ToList()
 
-            If paths.Count = 0 Then Return list
+            Dim total As Integer = paths.Count
+            ReportProgress(progress, "COLLECT", "파일 목록 준비 중", 0, total, 0.0)
 
-            For Each p In paths
+            If paths.Count = 0 Then
+                ReportProgress(progress, "DONE", "대상 파일이 없습니다.", 0, 0, 1.0)
+                Return list
+            End If
+
+            For i As Integer = 0 To paths.Count - 1
+                Dim p As String = paths(i)
+                Dim stageProgress As Double = If(total > 0, CDbl(i) / CDbl(total), 0.0)
+                ReportProgress(progress, "EXTRACT", $"파일 열기: {Path.GetFileName(p)}", i, total, stageProgress)
+
                 Dim doc As Document = Nothing
                 Try
                     Dim opt As OpenOptions = BuildOpenOptions(p)
@@ -54,7 +72,11 @@ Namespace Services
                     Dim row As New Row() With {.File = Path.GetFileName(p)}
                     Extract(doc, row)
                     list.Add(row)
-                Catch
+                    Dim afterProgress As Double = If(total > 0, CDbl(i + 1) / CDbl(total), 1.0)
+                    ReportProgress(progress, "EXTRACT", $"포인트 추출: {Path.GetFileName(p)}", i + 1, total, afterProgress)
+                Catch ex As Exception
+                    Dim afterProgress As Double = If(total > 0, CDbl(i + 1) / CDbl(total), 1.0)
+                    ReportProgress(progress, "EXTRACT", $"오류로 건너뜀: {Path.GetFileName(p)}", i + 1, total, afterProgress)
                     ' 개별 파일 실패는 무시하고 다음으로 진행
                 Finally
                     If doc IsNot Nothing Then
@@ -65,10 +87,11 @@ Namespace Services
                     End If
                 End Try
             Next
+            ReportProgress(progress, "DONE", "포인트 추출 완료", total, total, 1.0)
             Return list
         End Function
 
-        Public Shared Function ExportToExcel(uiapp As UIApplication, files As Object, Optional unit As String = "ft") As String
+        Public Shared Function ExportToExcel(uiapp As UIApplication, files As Object, Optional unit As String = "ft", Optional doAutoFit As Boolean = False) As String
             Dim rows = Run(uiapp, files)
 
             Dim desktop As String = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
@@ -88,7 +111,7 @@ Namespace Services
             })
 
             Dim dt As DataTable = BuildTable(headers, data)
-            ExcelCore.SaveXlsx(outPath, "Points", dt)
+            ExcelCore.SaveXlsx(outPath, "Points", dt, doAutoFit)
 
             Return outPath
         End Function
@@ -220,6 +243,32 @@ Namespace Services
 
         Private Shared Function RoundCoord(v As Double) As Double
             Return Math.Round(v, 4)
+        End Function
+
+        Private Shared Sub ReportProgress(cb As Action(Of ProgressInfo),
+                                          phase As String,
+                                          message As String,
+                                          current As Integer,
+                                          total As Integer,
+                                          phaseProgress As Double)
+            If cb Is Nothing Then Return
+            Try
+                cb(New ProgressInfo() With {
+                    .Phase = phase,
+                    .Message = message,
+                    .Current = current,
+                    .Total = total,
+                    .PhaseProgress = Clamp01(phaseProgress)
+                })
+            Catch
+            End Try
+        End Sub
+
+        Private Shared Function Clamp01(v As Double) As Double
+            If Double.IsNaN(v) OrElse Double.IsInfinity(v) Then Return 0.0
+            If v < 0.0 Then Return 0.0
+            If v > 1.0 Then Return 1.0
+            Return v
         End Function
 
     End Class

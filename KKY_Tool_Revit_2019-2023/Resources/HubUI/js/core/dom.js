@@ -138,3 +138,49 @@ export function showExcelSavedDialog(message, filePath, onOpen){
 
 window.addEventListener('error', e => toast(`에러: ${e.message}`,'err',4200));
 window.addEventListener('unhandledrejection', e => toast(`에러: ${e.reason}`,'err',4200));
+
+// 엑셀 저장 모드 선택 (fast/normal)
+export function chooseExcelMode(onSelect){
+  const existing = document.querySelector('.excelmode-backdrop');
+  if (existing) existing.remove();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'excelmode-backdrop';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'excelmode-dialog';
+
+  const title = document.createElement('div');
+  title.className = 'excelmode-title';
+  title.textContent = '엑셀 저장 옵션을 선택하세요';
+
+  const desc = document.createElement('div');
+  desc.className = 'excelmode-desc';
+  desc.textContent = '빠른 추출은 열 너비 자동 맞춤을 건너뛰고, 일반 추출은 저장 후 AutoFit을 수행합니다.';
+
+  const actions = document.createElement('div');
+  actions.className = 'excelmode-actions';
+
+  const close = (mode) => {
+    backdrop.remove();
+    if (typeof onSelect === 'function') onSelect(mode || 'fast');
+  };
+
+  const btnFast = document.createElement('button');
+  btnFast.type = 'button';
+  btnFast.className = 'btn btn-primary';
+  btnFast.textContent = '빠른 추출(기본)';
+  btnFast.addEventListener('click', () => { close('fast'); });
+
+  const btnNormal = document.createElement('button');
+  btnNormal.type = 'button';
+  btnNormal.className = 'btn';
+  btnNormal.textContent = '일반 추출(열 너비 AutoFit)';
+  btnNormal.addEventListener('click', () => { close('normal'); });
+
+  actions.append(btnFast, btnNormal);
+  dialog.append(title, desc, actions);
+  backdrop.append(dialog);
+  document.body.append(backdrop);
+
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close('fast'); });
+}

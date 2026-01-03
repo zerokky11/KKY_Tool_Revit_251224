@@ -260,7 +260,7 @@ Namespace Services
             Return ds
         End Function
 
-        Public Shared Sub SaveDataSetToXlsx(ds As DataSet, path As String)
+        Public Shared Sub SaveDataSetToXlsx(ds As DataSet, path As String, Optional doAutoFit As Boolean = False)
             If ds Is Nothing Then Return
             Dim wb As IWorkbook = New XSSFWorkbook()
             If ds.Tables.Contains(TableMeta) Then WriteSheet(wb, TableMeta, ds.Tables(TableMeta))
@@ -270,6 +270,7 @@ Namespace Services
             If ds.Tables.Contains(TableRouting) Then WriteSheet(wb, TableRouting, ds.Tables(TableRouting))
             SaveWorkbookSafely(wb, path)
             wb.Close()
+            If doAutoFit Then Infrastructure.ExcelCore.TryAutoFitWithExcel(path)
         End Sub
 
         Public Shared Function LoadExtractFromXlsx(path As String) As DataSet

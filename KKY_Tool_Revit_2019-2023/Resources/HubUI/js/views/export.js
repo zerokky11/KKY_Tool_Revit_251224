@@ -1,4 +1,5 @@
-import { clear, div, tdText, toast, setBusy, showExcelSavedDialog } from '../core/dom.js';
+import { clear, div, tdText, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
 const state = { files: [], rowsRaw: [], folder: '', unit: 'ft' };
@@ -26,14 +27,23 @@ export function renderExport(root) {
       <p class="feature-sub">RVT 폴더를 선택해 포인트/북각을 미리보기 후 Excel로 저장합니다.</p>`;
 
     const pick = cardBtn('폴더 선택', () => post('export:browse-folder', {}));
+    pick.id = 'btnExPick';
     const preview = cardBtn('추출 시작', () => {
       const targets = selectedFilePaths();
       if (!targets.length) { toast('미리볼 파일을 선택하세요.', 'warn'); return; }
-      setBusy(true, '미리보기 생성…');
+      setWorking(true);
+      startProgress('COLLECT', '미리보기 준비 중…', targets.length);
       post('export:preview', { files: targets, unit: state.unit });
     });
     preview.id = 'btnExPreview'; preview.disabled = true;
-    const save = cardBtn('엑셀 내보내기', () => post('export:save-excel', { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths() }));
+    const save = cardBtn('엑셀 내보내기', () => {
+      chooseExcelMode((mode) => {
+        const payload = { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths(), excelMode: mode || 'fast' };
+        setWorking(true);
+        startProgress('EXCEL', '엑셀 저장 준비 중…', state.rowsRaw.length);
+        post('export:save-excel', payload);
+      });
+    });
     save.id = 'btnExSave'; save.disabled = true;
     const actions = div('feature-actions');
     actions.append(pick, preview, save);
@@ -89,7 +99,8 @@ export function renderExport(root) {
 
     // === 미리보기 결과 ===
     onHost('export:previewed', ({ rows }) => {
-        setBusy(false);
+        finishWorking();
+        ProgressDialog.hide();
         state.rowsRaw = Array.isArray(rows) ? rows : [];
         repaintRows();
         syncSaveState();
@@ -106,11 +117,15 @@ export function renderExport(root) {
         } else {
             toast('엑셀 파일이 저장되었습니다.', 'ok', 2600);
         }
+        finishWorking();
+        ProgressDialog.hide();
     });
 
     // === 에러 공통 처리(중요) ===
-    onHost('revit:error', ({ message }) => { setBusy(false); toast(message || 'Revit 오류가 발생했습니다.', 'err', 3200); });
-    onHost('host:error', ({ message }) => { setBusy(false); toast(message || '호스트 오류가 발생했습니다.', 'err', 3200); });
+    onHost('revit:error', ({ message }) => { handleError(message || 'Revit 오류가 발생했습니다.'); });
+    onHost('host:error', ({ message }) => { handleError(message || '호스트 오류가 발생했습니다.'); });
+
+    onHost('export:progress', handleProgress);
 
     function renderFiles() {
         while (filesBody.firstChild) filesBody.removeChild(filesBody.firstChild);
@@ -175,7 +190,7 @@ function selectedFilePaths() {
 function syncPreviewState() {
     const hasChecked = selectedFilePaths().length > 0;
     const previewBtn = document.getElementById('btnExPreview');
-    if (previewBtn) previewBtn.disabled = !hasChecked;
+    if (previewBtn) previewBtn.disabled = !hasChecked || isWorking;
 }
 
 function commonDir(list) {
@@ -249,5 +264,129 @@ function convertRowsForSave() {
 
 function syncSaveState() {
     const saveBtn = document.getElementById('btnExSave');
-    if (saveBtn) saveBtn.disabled = !state.rowsRaw.length;
+    if (saveBtn) saveBtn.disabled = !state.rowsRaw.length || isWorking;
+}
+
+const PROGRESS_WEIGHTS = { COLLECT: 0.1, EXTRACT: 0.75, EXCEL: 0.15 };
+const PROGRESS_ORDER = ['COLLECT', 'EXTRACT', 'EXCEL'];
+let lastProgressPct = 0;
+let isWorking = false;
+
+function handleProgress(payload) {
+    if (!payload) return;
+    const phase = normalizePhase(payload.phase);
+    const message = payload.message || '';
+    const current = Number(payload.current || 0) || 0;
+    const total = Number(payload.total || 0) || 0;
+    const phaseProgress = clamp01(payload.phaseProgress);
+    const percentFromHost = payload.percent;
+
+    const percent = typeof percentFromHost === 'number'
+        ? Math.max(lastProgressPct, percentFromHost)
+        : computeProgressPercent(phase, current, total, phaseProgress);
+    lastProgressPct = Math.max(lastProgressPct, percent);
+
+    const subtitle = buildSubtitle(phase, current, total);
+    const detail = buildDetail(message, phase, current, total);
+
+    if (phase !== 'DONE' && phase !== 'ERROR') {
+        setWorking(true);
+    }
+    ProgressDialog.show('좌표/북각 추출', subtitle);
+    ProgressDialog.update(percent, subtitle, detail);
+
+    if (phase === 'DONE') {
+        setTimeout(() => { ProgressDialog.hide(); resetProgressState(); finishWorking(); }, 360);
+    } else if (phase === 'ERROR') {
+        resetProgressState();
+        finishWorking();
+        ProgressDialog.hide();
+    }
+}
+
+function startProgress(phase, message, total) {
+    resetProgressState();
+    isWorking = true;
+    const normalized = normalizePhase(phase);
+    const detail = buildDetail(message || '', normalized, 0, total || 0);
+    ProgressDialog.show('좌표/북각 추출', buildSubtitle(normalized, 0, total || 0));
+    ProgressDialog.update(0, message || '', detail);
+}
+
+function finishWorking() {
+    isWorking = false;
+    syncPreviewState();
+    syncSaveState();
+    const pick = document.getElementById('btnExPick');
+    if (pick) pick.disabled = false;
+}
+
+function setWorking(on) {
+    isWorking = !!on;
+    const pick = document.getElementById('btnExPick');
+    if (pick) pick.disabled = isWorking;
+    syncPreviewState();
+    syncSaveState();
+}
+
+function handleError(message) {
+    resetProgressState();
+    finishWorking();
+    ProgressDialog.hide();
+    toast(message || '오류가 발생했습니다.', 'err', 3200);
+}
+
+function resetProgressState() {
+    lastProgressPct = 0;
+}
+
+function buildSubtitle(phase, current, total) {
+    const label = phaseLabel(phase);
+    const count = total > 0 ? ` (${Math.max(current, 0)}/${total})` : '';
+    return `${label}${count}`;
+}
+
+function buildDetail(message, phase, current, total) {
+    const parts = [];
+    if (message) parts.push(message);
+    if (total > 0 && phase !== 'DONE' && phase !== 'ERROR') {
+        parts.push(`진행률 ${Math.min(100, Math.max(0, computeProgressPercent(phase, current, total, 0))).toFixed(0)}%`);
+    }
+    return parts.join(' · ');
+}
+
+function computeProgressPercent(phase, current, total, phaseProgress) {
+    if (phase === 'DONE') return 100;
+    const normalized = normalizePhase(phase);
+    if (normalized === 'ERROR') return lastProgressPct || 0;
+    const completed = PROGRESS_ORDER.reduce((acc, key) => {
+        if (key === normalized) return acc;
+        return acc + (PROGRESS_WEIGHTS[key] || 0);
+    }, 0);
+    const weight = PROGRESS_WEIGHTS[normalized] || 0;
+    const ratio = total > 0 ? Math.min(1, Math.max(0, current / total)) : 0;
+    const staged = Math.max(ratio, clamp01(phaseProgress));
+    const pct = (completed + weight * staged) * 100;
+    return Math.max(lastProgressPct, Math.min(100, pct));
+}
+
+function normalizePhase(phase) {
+    return String(phase || '').trim().toUpperCase() || 'EXTRACT';
+}
+
+function phaseLabel(phase) {
+    switch (normalizePhase(phase)) {
+        case 'COLLECT': return '파일 준비';
+        case 'EXTRACT': return '포인트 추출';
+        case 'EXCEL': return '엑셀 저장';
+        case 'DONE': return '완료';
+        case 'ERROR': return '오류';
+        default: return '진행 중';
+    }
+}
+
+function clamp01(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
 }

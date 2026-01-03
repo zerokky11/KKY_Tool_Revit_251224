@@ -899,7 +899,7 @@ Namespace Services
         End Function
 
         '==================== 결과를 엑셀로 ====================
-        Public Shared Function ExportResultToExcel(result As SharedParamRunResult) As String
+        Public Shared Function ExportResultToExcel(result As SharedParamRunResult, Optional doAutoFit As Boolean = False) As String
             If result Is Nothing OrElse result.Details Is Nothing OrElse result.Details.Count = 0 Then Return String.Empty
 
             Dim defaultName As String = $"ParamProp_{Date.Now:yyMMdd_HHmmss}.xlsx"
@@ -922,7 +922,7 @@ Namespace Services
                     dt.Rows.Add(row)
                 Next
 
-                Infrastructure.ExcelCore.SaveXlsx(sfd.FileName, "Results", dt)
+                Infrastructure.ExcelCore.SaveXlsx(sfd.FileName, "Results", dt, doAutoFit)
                 Return sfd.FileName
             End Using
         End Function

@@ -1,5 +1,5 @@
 // Resources/HubUI/js/views/paramprop.js
-import { clear, div, toast, setBusy, showExcelSavedDialog, debounce } from '../core/dom.js';
+import { clear, div, toast, setBusy, showExcelSavedDialog, debounce, chooseExcelMode } from '../core/dom.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
@@ -257,7 +257,7 @@ export function renderParamProp(root) {
             return;
         }
         setBusy(true, '엑셀 저장 중…');
-        post('sharedparam:export-excel', {});
+        chooseExcelMode((mode) => post('sharedparam:export-excel', { excelMode: mode || 'fast' }));
     }
 
     // ----- 렌더링 -----

@@ -1,5 +1,5 @@
 // Resources/HubUI/js/views/dup.js
-import { clear, div, toast, showExcelSavedDialog } from '../core/dom.js';
+import { clear, div, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
 import { onHost, post } from '../core/bridge.js';
 
 // Host 이벤트 (fix2 고정)
@@ -192,7 +192,7 @@ export function renderDup(root) {
     if (exporting) return;
     exporting = true;
     exportBtn.disabled = true;
-    post(EV_EXPORT_REQ, {});
+    chooseExcelMode((mode) => post(EV_EXPORT_REQ, { excelMode: mode || 'fast' }));
   }
 
   // ===== 호스트 응답 처리 =====

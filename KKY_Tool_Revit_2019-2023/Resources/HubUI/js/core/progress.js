@@ -12,6 +12,7 @@ let barFillEl = null;
 let lastUpdate = 0;
 let pendingTimer = null;
 let pendingData = null;
+let isVisible = false;
 
 function ensure() {
     if (root && root.isConnected) return;
@@ -68,6 +69,10 @@ export const ProgressDialog = {
     show(title, subtitle) {
         ensure();
         root.classList.remove('is-hidden');
+        if (!isVisible) {
+            isVisible = true;
+            document.body.classList.add('is-busy');
+        }
         if (titleEl) titleEl.textContent = title || '작업 진행 중';
         if (detailEl) detailEl.textContent = subtitle || '';
         if (metaEl) metaEl.textContent = '';
@@ -77,6 +82,10 @@ export const ProgressDialog = {
     },
     hide() {
         if (root) root.classList.add('is-hidden');
+        if (isVisible) {
+            isVisible = false;
+            document.body.classList.remove('is-busy');
+        }
         pendingData = null;
         if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
     }

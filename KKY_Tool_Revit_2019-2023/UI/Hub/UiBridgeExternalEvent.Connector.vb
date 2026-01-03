@@ -13,6 +13,7 @@ Imports NPOI.HSSF.UserModel
 Imports NPOI.SS.UserModel
 Imports NPOI.XSSF.UserModel
 Imports System.Windows.Forms ' WinForms 다이얼로그 사용
+Imports KKY_Tool_Revit.Infrastructure
 
 Namespace UI.Hub
     ' 커넥터 진단 (fix2 이벤트명/스키마 유지)
@@ -272,7 +273,8 @@ Namespace UI.Hub
 
                 Dim mismatchCount As Integer = CountMismatches(filteredTotal)
 
-                Dim saved As String = SaveRowsToExcel(filteredTotal, mismatchCount, _connectorExtraParams)
+                Dim doAutoFit As Boolean = ParseExcelMode(payload)
+                Dim saved As String = SaveRowsToExcel(filteredTotal, mismatchCount, _connectorExtraParams, doAutoFit)
 
                 SendToWeb("connector:saved", New With {.path = saved})
 
@@ -440,7 +442,7 @@ Namespace UI.Hub
             Return cnt
         End Function
 
-        Private Function SaveRowsToExcel(totalRows As List(Of Dictionary(Of String, Object)), Optional mismatchCount As Integer = -1, Optional extraParams As List(Of String) = Nothing) As String
+        Private Function SaveRowsToExcel(totalRows As List(Of Dictionary(Of String, Object)), Optional mismatchCount As Integer = -1, Optional extraParams As List(Of String) = Nothing, Optional doAutoFit As Boolean = False) As String
             Dim todayToken As String = Date.Now.ToString("yyMMdd")
             Dim count As Integer = If(mismatchCount < 0, CountMismatches(totalRows), mismatchCount)
             Dim defaultName As String = $"{todayToken}_커넥터기반 속성값 검토 결과_{count}개.xlsx"
@@ -472,7 +474,7 @@ Namespace UI.Hub
                         wb.Write(fs)
                     End Using
                 End Using
-
+                If doAutoFit Then Infrastructure.ExcelCore.TryAutoFitWithExcel(savePath)
                 Return savePath
             End Using
         End Function

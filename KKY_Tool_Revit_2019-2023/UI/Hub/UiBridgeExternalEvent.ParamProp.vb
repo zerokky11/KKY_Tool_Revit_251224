@@ -99,7 +99,8 @@ Namespace UI.Hub
                     Return
                 End If
 
-                Dim saved As String = ParamPropagateService.ExportResultToExcel(_lastParamResult)
+                Dim doAutoFit As Boolean = ParseExcelMode(payload)
+                Dim saved As String = ParamPropagateService.ExportResultToExcel(_lastParamResult, doAutoFit)
                 If String.IsNullOrWhiteSpace(saved) Then
                     SendToWeb("sharedparam:exported", New With {.ok = False, .message = "엑셀 저장이 취소되었습니다."})
                     Return

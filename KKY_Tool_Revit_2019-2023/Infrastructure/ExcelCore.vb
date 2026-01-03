@@ -12,7 +12,7 @@ Namespace Infrastructure
     Public Module ExcelCore
 
         ' 저장 대화상자 + 저장
-        Public Function PickAndSaveXlsx(sheetName As String, table As DataTable, Optional defaultFileName As String = Nothing) As String
+        Public Function PickAndSaveXlsx(sheetName As String, table As DataTable, Optional defaultFileName As String = Nothing, Optional doAutoFit As Boolean = False) As String
             If table Is Nothing Then Return String.Empty
             Dim fileName As String = If(String.IsNullOrWhiteSpace(defaultFileName), $"{sheetName}.xlsx", defaultFileName)
             Using sfd As New SaveFileDialog()
@@ -23,7 +23,7 @@ Namespace Infrastructure
                 sfd.OverwritePrompt = True
                 sfd.RestoreDirectory = True
                 If sfd.ShowDialog() = DialogResult.OK Then
-                    SaveXlsx(sfd.FileName, sheetName, table)
+                    SaveXlsx(sfd.FileName, sheetName, table, doAutoFit)
                     Return sfd.FileName
                 End If
             End Using
@@ -31,7 +31,7 @@ Namespace Infrastructure
         End Function
 
         ' 일반 테이블 저장
-        Public Sub SaveXlsx(filePath As String, sheetName As String, table As DataTable)
+        Public Sub SaveXlsx(filePath As String, sheetName As String, table As DataTable, Optional doAutoFit As Boolean = False)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
             Dim wb As IWorkbook = New XSSFWorkbook()
 
@@ -71,14 +71,17 @@ Namespace Infrastructure
                 Next
             Next
 
-            AutoSizeAll(sh, table.Columns.Count)
+            If doAutoFit Then
+                AutoSizeAll(sh, table.Columns.Count)
+            End If
 
             SaveWorkbookToFile(wb, filePath)
+            If doAutoFit Then TryAutoFitWithExcel(filePath)
             wb.Close()
         End Sub
 
         ' 요약 테이블(그룹 밴딩 + 그룹 글꼴 강조)
-        Public Sub SaveStyledSimple(outPath As String, sheetName As String, table As DataTable, groupColumnName As String)
+        Public Sub SaveStyledSimple(outPath As String, sheetName As String, table As DataTable, groupColumnName As String, Optional doAutoFit As Boolean = False)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
             Dim wb As IWorkbook = New XSSFWorkbook()
 
@@ -154,9 +157,12 @@ Namespace Infrastructure
                 Next
             Next
 
-            AutoSizeAll(sh, table.Columns.Count)
+            If doAutoFit Then
+                AutoSizeAll(sh, table.Columns.Count)
+            End If
 
             SaveWorkbookToFile(wb, outPath)
+            If doAutoFit Then TryAutoFitWithExcel(outPath)
             wb.Close()
         End Sub
 
@@ -238,6 +244,52 @@ Namespace Infrastructure
             If String.IsNullOrWhiteSpace(s) Then s = "Sheet1"
             Return s
         End Function
+
+        ' Excel COM AutoFit (선택적)
+        Public Sub TryAutoFitWithExcel(filePath As String)
+            If String.IsNullOrWhiteSpace(filePath) OrElse Not File.Exists(filePath) Then Return
+            Dim excelApp As Object = Nothing
+            Dim wb As Object = Nothing
+            Try
+                excelApp = CreateObject("Excel.Application")
+                If excelApp Is Nothing Then Return
+                excelApp.DisplayAlerts = False
+                wb = excelApp.Workbooks.Open(filePath)
+                If wb Is Nothing Then Return
+                For Each sh In wb.Worksheets
+                    Try
+                        sh.Cells.EntireColumn.AutoFit()
+                    Catch
+                    End Try
+                Next
+                wb.Save()
+            Catch
+            Finally
+                Try
+                    If wb IsNot Nothing Then wb.Close(False)
+                Catch
+                End Try
+                Try
+                    If excelApp IsNot Nothing Then excelApp.Quit()
+                Catch
+                End Try
+                TryReleaseCom(wb)
+                TryReleaseCom(excelApp)
+            End Try
+        End Sub
+
+        Private Sub TryReleaseCom(o As Object)
+            Try
+                If o IsNot Nothing AndAlso Type.GetTypeFromProgID("Excel.Application") IsNot Nothing Then
+                    Dim t = GetType(System.Runtime.InteropServices.Marshal)
+                    Dim rel = t.GetMethod("ReleaseComObject", {GetType(Object)})
+                    If rel IsNot Nothing Then
+                        rel.Invoke(Nothing, New Object() {o})
+                    End If
+                End If
+            Catch
+            End Try
+        End Sub
 
         ' ----------------------------
         ' 공통 시트 스타일 적용 유틸

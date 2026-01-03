@@ -4,11 +4,24 @@ Imports System.Data
 Imports System.IO
 Imports System.Diagnostics
 Imports Autodesk.Revit.UI
+Imports KKY_Tool_Revit.Services
 Imports NPOI.SS.UserModel
 Imports NPOI.XSSF.UserModel
 
 Namespace UI.Hub
     Partial Public Class UiBridgeExternalEvent
+
+        ' export:progress 페이로드
+        ' { phase: COLLECT|EXTRACT|EXCEL|DONE|ERROR, message, current, total, phaseProgress, percent }
+        Private Shared ReadOnly ExportProgressWeights As New Dictionary(Of String, Double)(StringComparer.OrdinalIgnoreCase) From {
+            {"COLLECT", 0.1},
+            {"EXTRACT", 0.75},
+            {"EXCEL", 0.15}
+        }
+        Private Shared ReadOnly ExportProgressOrder As String() = {"COLLECT", "EXTRACT", "EXCEL"}
+        Private Shared ExportProgressLastSent As DateTime = DateTime.MinValue
+        Private Shared ExportProgressLastPct As Double = 0.0
+        Private Shared ReadOnly ExportProgressGate As New Object()
 
         ' ========== Export: 폴더 선택 ==========
         Private Sub HandleExportBrowse()
@@ -23,10 +36,13 @@ Namespace UI.Hub
 
         ' ========== Export: 미리보기 ==========
         Private Sub HandleExportPreview(app As UIApplication, payload As Dictionary(Of String, Object))
+            ResetExportProgressState()
             Try
                 Dim files = ExtractStringList(payload, "files")
+                ReportExportProgress("COLLECT", "파일 목록 준비 중", 0, If(files, New List(Of String)()).Count, 0.0, True)
                 Dim rows = TryCallExportPointsService(app, files)
                 If rows Is Nothing Then
+                    ReportExportProgress("ERROR", "Export Points 서비스가 준비되지 않았습니다.", 0, 0, 0.0, True)
                     _host?.SendToWeb("revit:error", New With {.message = "Export Points 서비스가 준비되지 않았습니다."})
                     _host?.SendToWeb("export:previewed", New With {.rows = New List(Of Dictionary(Of String, Object))()})
                     Return
@@ -35,6 +51,7 @@ Namespace UI.Hub
                 Export_LastExportRows = rows
                 _host?.SendToWeb("export:previewed", New With {.rows = rows})
             Catch ex As Exception
+                ReportExportProgress("ERROR", ex.Message, 0, 0, 0.0, True)
                 _host?.SendToWeb("revit:error", New With {.message = "미리보기 실패: " & ex.Message})
                 _host?.SendToWeb("export:previewed", New With {.rows = New List(Of Dictionary(Of String, Object))()})
             End Try
@@ -42,26 +59,41 @@ Namespace UI.Hub
 
         ' ========== Export: 엑셀 저장 ==========
         Private Sub HandleExportSaveExcel(payload As Dictionary(Of String, Object))
+            ResetExportProgressState()
             Try
+                Dim doAutoFit As Boolean = ParseExcelMode(payload)
                 Dim unit As String = ExtractUnit(payload)
                 Dim rows = TryGetRowsFromPayload(payload)
                 If rows Is Nothing OrElse rows.Count = 0 Then rows = Export_LastExportRows
                 If rows Is Nothing Then rows = New List(Of Dictionary(Of String, Object))()
+                Dim total As Integer = rows.Count
+                ReportExportProgress("EXCEL", "엑셀 저장 준비 중", 0, total, 0.0, True)
+
                 Dim dt = BuildExportDataTableFromRows(rows, unit, True)
                 Dim todayToken As String = Date.Now.ToString("yyMMdd")
                 Dim defaultName As String = $"{todayToken}_좌표 추출 결과.xlsx"
-                Dim savePath As String = SaveExcelWithDialog(dt, defaultName)
+                Dim savePath As String = SaveExcelWithDialog(dt, defaultName, doAutoFit)
 
                 If Not String.IsNullOrEmpty(savePath) Then
+                    ReportExportProgress("DONE", "엑셀 저장 완료", total, total, 1.0, True)
                     _host?.SendToWeb("export:saved", New With {.path = savePath})
+                Else
+                    ReportExportProgress("DONE", "엑셀 저장이 취소되었습니다.", total, total, 1.0, True)
                 End If
             Catch ex As Exception
+                ReportExportProgress("ERROR", ex.Message, 0, 0, 0.0, True)
                 _host?.SendToWeb("revit:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
             End Try
         End Sub
 
         ' -------- 서비스 호출/어댑터/테이블 --------
         Private Function TryCallExportPointsService(app As UIApplication, files As List(Of String)) As List(Of Dictionary(Of String, Object))
+            Try
+                Dim direct = ExportPointsService.Run(app, files, AddressOf HandleExportProgressFromService)
+                Return AnyToRows(direct)
+            Catch
+            End Try
+
             Dim names = {"KKY_Tool_Revit.Services.ExportPointsService", "Services.ExportPointsService"}
             For Each n In names
                 Dim t = FindType(n, "ExportPointsService")
@@ -69,7 +101,24 @@ Namespace UI.Hub
                 Dim m = t.GetMethod("Run", Reflection.BindingFlags.Public Or Reflection.BindingFlags.Static Or Reflection.BindingFlags.Instance)
                 If m Is Nothing Then Continue For
                 Dim inst As Object = If(m.IsStatic, Nothing, Activator.CreateInstance(t))
-                Dim result = m.Invoke(inst, New Object() {app, files})
+                Dim args As Object()
+                Dim ps = m.GetParameters()
+                If ps IsNot Nothing AndAlso ps.Length >= 3 Then
+                    Dim cb As [Delegate] = Nothing
+                    Try
+                        Dim cbMethod = GetType(UiBridgeExternalEvent).GetMethod("HandleExportProgressFromObject", Reflection.BindingFlags.Instance Or Reflection.BindingFlags.NonPublic)
+                        cb = [Delegate].CreateDelegate(ps(2).ParameterType, Me, cbMethod)
+                    Catch
+                    End Try
+                    If cb IsNot Nothing Then
+                        args = New Object() {app, files, cb}
+                    Else
+                        args = New Object() {app, files}
+                    End If
+                Else
+                    args = New Object() {app, files}
+                End If
+                Dim result = m.Invoke(inst, args)
                 Return AnyToRows(result)
             Next
             Return Nothing
@@ -107,6 +156,8 @@ Namespace UI.Hub
                 "TrueNorthAngle(deg)"
             }
             For Each h In headers : dt.Columns.Add(h) : Next
+            Dim total As Integer = If(rows IsNot Nothing, rows.Count, 0)
+            Dim idx As Integer = 0
             For Each r In rows
                 Dim dr = dt.NewRow()
                 dr(0) = SafeToString(r, "File")
@@ -118,9 +169,34 @@ Namespace UI.Hub
                 dr(6) = FormatCoordForUnit(r, {"SurveyPoint_Z(mm)", "SurveyPoint_Z(ft)", "SurveyPoint_Z(m)", "SurveyZ", "SurveyPoint_Z"}, normalizedUnit, applyConversion)
                 dr(7) = FormatAngleValue(r, "TrueNorthAngle(deg)")
                 dt.Rows.Add(dr)
+                idx += 1
+                Dim progress As Double = If(total > 0, CDbl(idx) / CDbl(total), 1.0)
+                ReportExportProgress("EXCEL", "엑셀 데이터 구성", idx, total, progress, False)
             Next
+            If total = 0 Then
+                ReportExportProgress("EXCEL", "엑셀 데이터 구성", 0, 0, 0.0, False)
+            End If
             Return dt
         End Function
+
+        Private Sub HandleExportProgressFromService(info As ExportPointsService.ProgressInfo)
+            If info Is Nothing Then Return
+            ReportExportProgress(info.Phase, info.Message, info.Current, info.Total, info.PhaseProgress, False)
+        End Sub
+
+        Private Sub HandleExportProgressFromObject(info As Object)
+            If info Is Nothing Then Return
+            Try
+                Dim t = info.GetType()
+                Dim phase As String = Convert.ToString(t.GetProperty("Phase")?.GetValue(info, Nothing))
+                Dim message As String = Convert.ToString(t.GetProperty("Message")?.GetValue(info, Nothing))
+                Dim current As Integer = ToIntSafe(t.GetProperty("Current")?.GetValue(info, Nothing))
+                Dim total As Integer = ToIntSafe(t.GetProperty("Total")?.GetValue(info, Nothing))
+                Dim phaseProgress As Double = ToDoubleSafe(t.GetProperty("PhaseProgress")?.GetValue(info, Nothing))
+                ReportExportProgress(phase, message, current, total, phaseProgress, False)
+            Catch
+            End Try
+        End Sub
 
         ' ==================================================================
         ' Export local helpers (self-contained; no cross-module dependency)
@@ -315,7 +391,7 @@ Namespace UI.Hub
         End Function
 
         ' DataTable을 저장 대화상자로 엑셀로 저장하고 경로 반환(취소 시 "")
-        Private Shared Function SaveExcelWithDialog(dt As DataTable, Optional defaultName As String = "export.xlsx") As String
+        Private Shared Function SaveExcelWithDialog(dt As DataTable, Optional defaultName As String = "export.xlsx", Optional doAutoFit As Boolean = False) As String
             If dt Is Nothing OrElse dt.Columns.Count = 0 Then Return String.Empty
             Dim dlg As New Microsoft.Win32.SaveFileDialog() With {
                 .Filter = "Excel (*.xlsx)|*.xlsx",
@@ -354,11 +430,121 @@ Namespace UI.Hub
                 Using fs As New FileStream(path, FileMode.Create, FileAccess.Write)
                     wb.Write(fs)
                 End Using
+                If doAutoFit Then ExcelCore.TryAutoFitWithExcel(path)
                 Return path
             Catch ex As Exception
                 _host?.SendToWeb("host:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
                 Return String.Empty
             End Try
+        End Function
+
+        ' 진행률 헬퍼
+        Private Shared Function ToIntSafe(obj As Object) As Integer
+            If obj Is Nothing Then Return 0
+            Try
+                Return Convert.ToInt32(obj)
+            Catch
+                Return 0
+            End Try
+        End Function
+
+        Private Shared Function ToDoubleSafe(obj As Object) As Double
+            If obj Is Nothing Then Return 0.0
+            Try
+                Return Convert.ToDouble(obj)
+            Catch
+                Return 0.0
+            End Try
+        End Function
+
+        Private Shared Sub ResetExportProgressState()
+            SyncLock ExportProgressGate
+                ExportProgressLastSent = DateTime.MinValue
+                ExportProgressLastPct = 0.0
+            End SyncLock
+        End Sub
+
+        Private Shared Sub ReportExportProgress(phase As String,
+                                                message As String,
+                                                current As Integer,
+                                                total As Integer,
+                                                phaseProgress As Double,
+                                                Optional force As Boolean = False)
+            Dim normalized As String = NormalizeExportPhase(phase)
+            Dim pctToSend As Double = 0.0
+            Dim shouldSend As Boolean = False
+            Dim now As DateTime = DateTime.UtcNow
+            SyncLock ExportProgressGate
+                Dim computed As Double = ComputeExportPercent(normalized, current, total, phaseProgress, ExportProgressLastPct)
+                Dim elapsed As Double = (now - ExportProgressLastSent).TotalMilliseconds
+                Dim delta As Double = Math.Abs(computed - ExportProgressLastPct)
+                Dim important As Boolean = normalized = "DONE" OrElse normalized = "ERROR"
+                If force OrElse important OrElse elapsed >= 120.0 OrElse delta >= 1.0 Then
+                    ExportProgressLastSent = now
+                    ExportProgressLastPct = Math.Max(ExportProgressLastPct, computed)
+                    pctToSend = ExportProgressLastPct
+                    shouldSend = True
+                End If
+            End SyncLock
+            If Not shouldSend Then Return
+
+            _host?.SendToWeb("export:progress", New With {
+                .phase = normalized,
+                .message = message,
+                .current = current,
+                .total = total,
+                .phaseProgress = Clamp01(phaseProgress),
+                .percent = pctToSend
+            })
+        End Sub
+
+        Private Shared Function ComputeExportPercent(phase As String,
+                                                     current As Integer,
+                                                     total As Integer,
+                                                     phaseProgress As Double,
+                                                     lastPct As Double) As Double
+            If phase = "DONE" Then Return 100.0
+            If phase = "ERROR" Then Return lastPct
+
+            Dim completed As Double = 0.0
+            Dim found As Boolean = False
+            For Each key In ExportProgressOrder
+                If String.Equals(key, phase, StringComparison.OrdinalIgnoreCase) Then
+                    found = True
+                    Exit For
+                End If
+                If ExportProgressWeights.ContainsKey(key) Then completed += ExportProgressWeights(key)
+            Next
+            Dim weight As Double
+            If ExportProgressWeights.ContainsKey(phase) Then
+                weight = ExportProgressWeights(phase)
+            ElseIf Not found Then
+                weight = 1.0
+                completed = 0.0
+            Else
+                weight = 0.0
+            End If
+            Dim ratio As Double = 0.0
+            If total > 0 Then ratio = Math.Max(0.0, Math.Min(1.0, CDbl(current) / CDbl(total)))
+            ratio = Math.Max(ratio, Clamp01(phaseProgress))
+
+            Dim pct As Double = (completed + weight * ratio) * 100.0
+            If pct < lastPct Then Return lastPct
+            If pct > 100.0 Then Return 100.0
+            Return pct
+        End Function
+
+        Private Shared Function NormalizeExportPhase(phase As String) As String
+            Dim p As String = If(phase, String.Empty).Trim().ToUpperInvariant()
+            If String.IsNullOrEmpty(p) Then Return "EXTRACT"
+            Return p
+        End Function
+
+        Private Shared Function Clamp01(v As Double) As Double
+            If Double.IsNaN(v) OrElse Double.IsInfinity(v) Then Return 0.0
+            If v < 0.0 Then Return 0.0
+            If v > 1.0 Then Return 1.0
+            Return v
         End Function
 
     End Class
