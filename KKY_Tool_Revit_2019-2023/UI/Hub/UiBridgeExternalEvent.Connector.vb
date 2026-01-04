@@ -19,10 +19,10 @@ Namespace UI.Hub
     ' 커넥터 진단 (fix2 이벤트명/스키마 유지)
     Partial Public Class UiBridgeExternalEvent
 
-        ' 최근 로드/실행 결과(엑셀 저장 시 기본 소스)
+        ' 최근 로드/실행 결과(엑셀 내보내기 시 기본 소스)
         Private lastConnRows As List(Of Dictionary(Of String, Object)) = Nothing
 
-        ' 전체 커넥터 결과(엑셀 저장용) - Total/Detail 분리
+        ' 전체 커넥터 결과(엑셀 내보내기용) - Total/Detail 분리
         Private _connectorTotalRows As List(Of Dictionary(Of String, Object)) = Nothing
         Private _connectorDetailRows As List(Of Dictionary(Of String, Object)) = Nothing
 
@@ -280,7 +280,7 @@ Namespace UI.Hub
                 SendToWeb("connector:saved", New With {.path = saved})
 
             Catch ex As Exception
-                SendToWeb("revit:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                SendToWeb("revit:error", New With {.message = "엑셀 내보내기 실패: " & ex.Message})
             End Try
         End Sub
 
@@ -493,11 +493,11 @@ Namespace UI.Hub
                     Else
                         Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalCount, totalCount, Nothing, True)
                     End If
-                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalCount, totalCount, 100.0R, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 내보내기 완료", totalCount, totalCount, 100.0R, True)
                     Return savePath
                 End Using
             Catch ex As OperationCanceledException
-                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장이 취소되었습니다.", written, totalCount, 100.0R, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 내보내기가 취소되었습니다.", written, totalCount, 100.0R, True)
                 Return String.Empty
             Catch ex As Exception
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalCount, Nothing, True)

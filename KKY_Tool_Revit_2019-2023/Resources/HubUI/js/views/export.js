@@ -42,7 +42,7 @@ export function renderExport(root) {
       chooseExcelMode((mode) => {
         const payload = { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths(), excelMode: mode || 'fast' };
         setWorking(true);
-        startProgress('EXCEL', '엑셀 저장 준비 중…', state.rowsRaw.length);
+        startProgress('EXCEL', '엑셀 내보내기 준비 중…', state.rowsRaw.length);
         post('export:save-excel', payload);
       });
     });
@@ -128,11 +128,11 @@ export function renderExport(root) {
     onHost('export:saved', ({ path }) => {
         const p = path || '';
         if (p) {
-            showExcelSavedDialog('엑셀 파일을 저장했습니다.', p, (fp) => {
+            showExcelSavedDialog('엑셀 파일을 내보냈습니다.', p, (fp) => {
                 if (fp) post('excel:open', { path: fp });
             });
         } else {
-            toast('엑셀 파일이 저장되었습니다.', 'ok', 2600);
+            toast('엑셀 파일을 내보냈습니다.', 'ok', 2600);
         }
         finishWorking();
         ProgressDialog.hide();
@@ -440,7 +440,7 @@ function phaseLabel(phase) {
         case 'EXCEL_WRITE': return '엑셀 작성';
         case 'EXCEL_SAVE': return '파일 저장';
         case 'AUTOFIT': return 'AutoFit';
-        case 'EXCEL': return '엑셀 저장';
+        case 'EXCEL': return '엑셀 내보내기';
         case 'DONE': return '완료';
         case 'ERROR': return '오류';
         default: return '진행 중';

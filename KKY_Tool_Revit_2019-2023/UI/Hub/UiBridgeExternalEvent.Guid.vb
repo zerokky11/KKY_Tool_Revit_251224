@@ -131,12 +131,12 @@ Namespace UI.Hub
                 LogAutoFitDecision(requestedAutoFit, "GuidAuditExport")
                 Dim saved = GuidAuditService.Export(target, sheet, excelMode, "guid:progress")
                 If String.IsNullOrWhiteSpace(saved) Then
-                    SendToWeb("guid:error", New With {.message = "엑셀 저장이 취소되었습니다."})
+                    SendToWeb("guid:error", New With {.message = "엑셀 내보내기가 취소되었습니다."})
                     Return
                 End If
                 SendToWeb("guid:exported", New With {.path = saved, .which = which})
             Catch ex As Exception
-                SendToWeb("guid:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                SendToWeb("guid:error", New With {.message = "엑셀 내보내기 실패: " & ex.Message})
             End Try
         End Sub
 

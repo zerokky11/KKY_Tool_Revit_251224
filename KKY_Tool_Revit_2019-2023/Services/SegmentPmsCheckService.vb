@@ -290,7 +290,7 @@ Namespace Services
                 Else
                     Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, written, totalRows, Nothing, True)
                 End If
-                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", written, totalRows, 100.0R, True)
+                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 내보내기 완료", written, totalRows, 100.0R, True)
             Catch ex As Exception
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "ERROR", ex.Message, written, totalRows, Nothing, True)
                 Throw

@@ -1,3 +1,4 @@
+Imports System.Diagnostics
 Imports System.Reflection
 Imports System.Windows.Media
 Imports System.Windows.Media.Imaging
@@ -37,11 +38,13 @@ Namespace KKY_Tool_Revit
                 'Dim resNames = String.Join(vbCrLf, Assembly.GetExecutingAssembly().GetManifestResourceNames())
                 'TaskDialog.Show("RES", resNames)
 
-                Dim smallImg = LoadPng("KKY_Tool_Revit.Resources.icons.hub_16.png")
-                If smallImg Is Nothing Then smallImg = LoadPng("KKY_Tool_Revit.Resources.icons.hub_16.png")
+                Dim smallImg = LoadHubIcon(
+                    "KKY_Tool_Revit.Resources.Icons.KKY_Hub_16.png",
+                    "KKY_Tool_Revit.Resources.icons.hub_16.png")
 
-                Dim largeImg = LoadPng("KKY_Tool_Revit.Resources.icons.hub_32.png")
-                If largeImg Is Nothing Then largeImg = LoadPng("KKY_Tool_Revit.Resources.icons.hub_32.png")
+                Dim largeImg = LoadHubIcon(
+                    "KKY_Tool_Revit.Resources.Icons.KKY_Hub_32.png",
+                    "KKY_Tool_Revit.Resources.icons.hub_32.png")
 
                 btn.Image = smallImg
                 btn.LargeImage = largeImg
@@ -79,20 +82,34 @@ Namespace KKY_Tool_Revit
             End Try
         End Sub
 
-        Private Function LoadPng(resName As String) As ImageSource
+        Private Function LoadHubIcon(ParamArray resourceNames() As String) As ImageSource
+            For Each name In resourceNames
+                Dim img = LoadPngImageSource(name)
+                If img IsNot Nothing Then Return img
+            Next
+            Return Nothing
+        End Function
+
+        Private Function LoadPngImageSource(resName As String) As ImageSource
             Dim asm = Assembly.GetExecutingAssembly()
             Dim resolvedName = ResolveResourceName(asm, resName)
-            If String.IsNullOrEmpty(resolvedName) Then Return Nothing
+            If String.IsNullOrEmpty(resolvedName) Then
+                Debug.WriteLine($"[KKY_Tool_Revit] 아이콘 리소스 로드 실패: {resName}")
+                Return Nothing
+            End If
 
             Using s = asm.GetManifestResourceStream(resolvedName)
-                If s Is Nothing Then Return Nothing
-                Dim decoder = New PngBitmapDecoder(
-                    s,
-                    BitmapCreateOptions.PreservePixelFormat,
-                    BitmapCacheOption.OnLoad)
-                Dim src = decoder.Frames(0)
-                src.Freeze()
-                Return src
+                If s Is Nothing Then
+                    Debug.WriteLine($"[KKY_Tool_Revit] 아이콘 리소스 로드 실패: {resName}")
+                    Return Nothing
+                End If
+                Dim bmp As New BitmapImage()
+                bmp.BeginInit()
+                bmp.StreamSource = s
+                bmp.CacheOption = BitmapCacheOption.OnLoad
+                bmp.EndInit()
+                bmp.Freeze()
+                Return bmp
             End Using
         End Function
 

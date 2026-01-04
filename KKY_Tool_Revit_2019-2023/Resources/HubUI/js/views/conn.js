@@ -406,11 +406,11 @@ export function renderConn(root) {
         updateSaveDisabled();
         const p = (payload && payload.path) || '';
         if (p) {
-          showExcelSavedDialog('엑셀 파일을 저장했습니다.', p, (path) => {
+          showExcelSavedDialog('엑셀 파일을 내보냈습니다.', p, (path) => {
             if (path) post('excel:open', { path });
           });
         } else {
-          toast('엑셀 파일이 저장되었습니다.', 'ok', 2600);
+          toast('엑셀 파일을 내보냈습니다.', 'ok', 2600);
         }
         break;
       }
@@ -457,7 +457,7 @@ export function renderConn(root) {
     run.disabled = exporting;
     updateSaveDisabled();
 
-    ProgressDialog.show('커넥터 엑셀 저장', subtitle);
+    ProgressDialog.show('커넥터 엑셀 내보내기', subtitle);
     ProgressDialog.update(percent, subtitle, detail);
 
     if (!exporting) {

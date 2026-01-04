@@ -139,9 +139,11 @@
 	<!-- 리소스 -->
 	<ItemGroup>
 		<EmbeddedResource Include="Resources\icons\hub_16.png" Condition="Exists('Resources\icons\hub_16.png')">
+			<LogicalName>KKY_Tool_Revit.Resources.Icons.KKY_Hub_16.png</LogicalName>
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</EmbeddedResource>
 		<EmbeddedResource Include="Resources\icons\hub_32.png" Condition="Exists('Resources\icons\hub_32.png')">
+			<LogicalName>KKY_Tool_Revit.Resources.Icons.KKY_Hub_32.png</LogicalName>
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</EmbeddedResource>
 		<EmbeddedResource Include="Resources\icons\hub_64.png" Condition="Exists('Resources\icons\hub_64.png')">

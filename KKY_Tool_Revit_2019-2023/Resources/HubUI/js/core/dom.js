@@ -83,7 +83,7 @@ export function toast(msg, kind='info', ms=2600){
 }
 
 export function showExcelSavedDialog(message, filePath, onOpen){
-  toast(message || '엑셀로 저장했습니다.', 'ok');
+  toast(message || '엑셀로 내보냈습니다.', 'ok');
 
   const existing = document.querySelector('.excel-dialog-backdrop');
   if (existing) existing.remove();
@@ -96,7 +96,7 @@ export function showExcelSavedDialog(message, filePath, onOpen){
 
   const title = document.createElement('div');
   title.className = 'excel-dialog-title';
-  title.textContent = message || '엑셀 파일을 저장했습니다.';
+  title.textContent = message || '엑셀 파일을 내보냈습니다.';
 
   const desc = document.createElement('div');
   desc.className = 'excel-dialog-desc';
@@ -139,7 +139,7 @@ export function showExcelSavedDialog(message, filePath, onOpen){
 window.addEventListener('error', e => toast(`에러: ${e.message}`,'err',4200));
 window.addEventListener('unhandledrejection', e => toast(`에러: ${e.reason}`,'err',4200));
 
-// 엑셀 저장 모드 선택 (fast/normal)
+// 엑셀 내보내기 모드 선택 (fast/normal)
 export function chooseExcelMode(onSelect){
   const existing = document.querySelector('.excelmode-backdrop');
   if (existing) existing.remove();
@@ -151,7 +151,7 @@ export function chooseExcelMode(onSelect){
 
   const title = document.createElement('div');
   title.className = 'excelmode-title';
-  title.textContent = '엑셀 저장 옵션을 선택하세요';
+  title.textContent = '엑셀 내보내기 옵션을 선택하세요';
 
   const desc = document.createElement('div');
   desc.className = 'excelmode-desc';

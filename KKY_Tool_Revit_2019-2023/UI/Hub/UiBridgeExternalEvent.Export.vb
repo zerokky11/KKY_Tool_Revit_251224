@@ -85,7 +85,7 @@ Namespace UI.Hub
             End Try
         End Sub
 
-        ' ========== Export: 엑셀 저장 ==========
+        ' ========== Export: 엑셀 내보내기 ==========
         Private Sub HandleExportSaveExcel(payload As Dictionary(Of String, Object))
             ResetExportProgressState()
             Try
@@ -95,7 +95,7 @@ Namespace UI.Hub
                 If rows Is Nothing OrElse rows.Count = 0 Then rows = Export_LastExportRows
                 If rows Is Nothing Then rows = New List(Of Dictionary(Of String, Object))()
                 Dim total As Integer = rows.Count
-                ReportExportProgress("EXCEL", "엑셀 저장 준비 중", 0, total, 0.0, True)
+                ReportExportProgress("EXCEL", "엑셀 내보내기 준비 중", 0, total, 0.0, True)
 
                 Dim dt = BuildExportDataTableFromRows(rows, unit, True)
                 Dim todayToken As String = Date.Now.ToString("yyMMdd")
@@ -103,14 +103,14 @@ Namespace UI.Hub
                 Dim savePath As String = SaveExcelWithDialog(dt, defaultName, doAutoFit)
 
                 If Not String.IsNullOrEmpty(savePath) Then
-                    ReportExportProgress("DONE", "엑셀 저장 완료", total, total, 1.0, True)
+                    ReportExportProgress("DONE", "엑셀 내보내기 완료", total, total, 1.0, True)
                     _host?.SendToWeb("export:saved", New With {.path = savePath})
                 Else
-                    ReportExportProgress("DONE", "엑셀 저장이 취소되었습니다.", total, total, 1.0, True)
+                    ReportExportProgress("DONE", "엑셀 내보내기가 취소되었습니다.", total, total, 1.0, True)
                 End If
             Catch ex As Exception
                 ReportExportProgress("ERROR", ex.Message, 0, 0, 0.0, True)
-                _host?.SendToWeb("revit:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                _host?.SendToWeb("revit:error", New With {.message = "엑셀 내보내기 실패: " & ex.Message})
             End Try
         End Sub
 
@@ -230,7 +230,7 @@ Namespace UI.Hub
         ' Export local helpers (self-contained; no cross-module dependency)
         ' ==================================================================
 
-        ' 마지막 미리보기 결과(엑셀 저장 시 payload 없을 때 사용)
+        ' 마지막 미리보기 결과(엑셀 내보내기 시 payload 없을 때 사용)
         Private Shared Export_LastExportRows As List(Of Dictionary(Of String, Object)) _
             = New List(Of Dictionary(Of String, Object))()
 
@@ -466,7 +466,7 @@ Namespace UI.Hub
                         sh.AutoSizeColumn(c)
                     Next
                 End If
-                ReportExportProgress("EXCEL_SAVE", "엑셀 파일 저장", totalRows, totalRows, 1.0, True)
+                ReportExportProgress("EXCEL_SAVE", "엑셀 파일 내보내기", totalRows, totalRows, 1.0, True)
                 Using fs As New FileStream(path, FileMode.Create, FileAccess.Write)
                     wb.Write(fs)
                 End Using
@@ -477,10 +477,10 @@ Namespace UI.Hub
                 Else
                     ReportExportProgress("AUTOFIT", autoFitMessage, totalRows, totalRows, 1.0, True)
                 End If
-                ReportExportProgress("DONE", "엑셀 저장 완료", totalRows, totalRows, 1.0, True)
+                ReportExportProgress("DONE", "엑셀 내보내기 완료", totalRows, totalRows, 1.0, True)
                 Return path
             Catch ex As Exception
-                _host?.SendToWeb("host:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                _host?.SendToWeb("host:error", New With {.message = "엑셀 내보내기 실패: " & ex.Message})
                 ReportExportProgress("ERROR", ex.Message, writtenRows, totalRows, 0.0, True)
                 Return String.Empty
             End Try

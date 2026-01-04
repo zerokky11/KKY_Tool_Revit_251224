@@ -92,7 +92,7 @@ Namespace Infrastructure
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
             End If
 
-            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 내보내기 완료", totalRows, totalRows, 100.0R, True)
             wb.Close()
         End Sub
 
@@ -193,7 +193,7 @@ Namespace Infrastructure
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
             End If
 
-            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 저장 완료", totalRows, totalRows, 100.0R, True)
+            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 내보내기 완료", totalRows, totalRows, 100.0R, True)
             wb.Close()
         End Sub
 

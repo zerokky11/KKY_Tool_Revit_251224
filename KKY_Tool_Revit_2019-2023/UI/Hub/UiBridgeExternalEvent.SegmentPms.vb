@@ -310,7 +310,7 @@ Namespace UI.Hub
                     ReportProgress(files.Count, 0, "open", "추출 시작", String.Empty)
                     _extractData = SegmentPmsCheckService.ExtractToDataSet(app, files, opts, AddressOf ReportProgress)
                     _lastExtractPath = dlg.FileName
-                    ReportProgress(files.Count, files.Count, "save", "엑셀 저장 중", dlg.FileName)
+                    ReportProgress(files.Count, files.Count, "save", "엑셀 내보내기 중", dlg.FileName)
                     Dim doAutoFit As Boolean = ParseExcelMode(payload)
                     SegmentPmsCheckService.SaveDataSetToXlsx(_extractData, dlg.FileName, doAutoFit, "segmentpms:progress")
                     WaitForFileReady(dlg.FileName)
@@ -535,7 +535,7 @@ Namespace UI.Hub
                     Else
                         Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "AUTOFIT", autoFitMessage, written, totalRowsCount, Nothing, True)
                     End If
-                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "DONE", "엑셀 저장 완료", written, totalRowsCount, 100.0R, True)
+                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "DONE", "엑셀 내보내기 완료", written, totalRowsCount, 100.0R, True)
                     SendToWeb("segmentpms:saved", New With {.path = savePath})
                 Catch ex As Exception
                     Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report("segmentpms:progress", "ERROR", ex.Message, written, totalRowsCount, Nothing, True)

@@ -358,7 +358,7 @@ Namespace UI.Hub
 
                 Dim outPath As String = sfd.FileName
 
-                ' 엑셀 저장
+                ' 엑셀 내보내기
                 Dim doAutoFit As Boolean = ParseExcelMode(payload)
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset("dup:progress")
                 Exports.DuplicateExport.Save(outPath, _lastRows.Cast(Of Object)(), doAutoFit, "dup:progress")
@@ -369,7 +369,7 @@ Namespace UI.Hub
                   "해당 파일이 열려 있어 저장에 실패했습니다. 엑셀에서 파일을 닫은 뒤 다시 시도해 주세요."
                 SendToWeb("dup:exported", New With {.ok = False, .message = msg, .token = token})
             Catch ex As Exception
-                SendToWeb("dup:exported", New With {.ok = False, .message = $"엑셀 저장에 실패했습니다: {ex.Message}", .token = token})
+                SendToWeb("dup:exported", New With {.ok = False, .message = $"엑셀 내보내기에 실패했습니다: {ex.Message}", .token = token})
             End Try
         End Sub
 
@@ -736,7 +736,7 @@ Namespace UI.Hub
         End Function
 
         ''' <summary>
-        ''' 엑셀 저장 안내를 WPF로 시도하고 실패하면 TaskDialog로 폴백한다.
+        ''' 엑셀 내보내기 안내를 WPF로 시도하고 실패하면 TaskDialog로 폴백한다.
         ''' 반환값: True = 파일 열기
         ''' </summary>
         Private Function ShowExcelSavedDialog(outPath As String, groupsCount As Integer,

@@ -27,7 +27,7 @@ const PROGRESS_STAGE_TITLE = {
   save: '결과 저장 중',
   excel_init: '엑셀 준비 중',
   excel_write: '엑셀 작성 중',
-  excel_save: '엑셀 저장 중',
+  excel_save: '엑셀 내보내기 중',
   autofit: 'AutoFit 적용 중',
   finish: '검토 마무리 중',
   done: '검토 완료',
@@ -266,8 +266,8 @@ export function renderSegmentPms(root) {
   function paintResults(payload) {
     state.results = payload || { hasResult: true };
     const total = payload?.totalCount ?? (Array.isArray(payload?.compare) ? payload.compare.length : 0);
-    resInfo.textContent = total > 0 ? `총 ${total}건의 결과가 준비되었습니다. 엑셀 저장 후 확인하세요.` : '결과 없음';
-    toast('검토가 완료되었습니다. 엑셀로 저장하세요.', 'ok');
+    resInfo.textContent = total > 0 ? `총 ${total}건의 결과가 준비되었습니다. 엑셀 내보내기 후 확인하세요.` : '결과 없음';
+    toast('검토가 완료되었습니다. 엑셀로 내보내세요.', 'ok');
   }
 
   function updateButtons() {

@@ -133,7 +133,7 @@ Namespace Services
             Return res
         End Function
 
-        ''' <summary>엑셀 저장 (AutoFit 사용 안 함)</summary>
+        ''' <summary>엑셀 내보내기 (AutoFit 사용 안 함)</summary>
         Public Shared Function Export(table As DataTable,
                                       sheetName As String,
                                       Optional excelMode As String = "fast",

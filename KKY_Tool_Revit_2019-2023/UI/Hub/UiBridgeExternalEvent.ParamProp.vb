@@ -102,14 +102,14 @@ Namespace UI.Hub
                 Dim doAutoFit As Boolean = ParseExcelMode(payload)
                 Dim saved As String = ParamPropagateService.ExportResultToExcel(_lastParamResult, doAutoFit)
                 If String.IsNullOrWhiteSpace(saved) Then
-                    SendToWeb("sharedparam:exported", New With {.ok = False, .message = "엑셀 저장이 취소되었습니다."})
+                    SendToWeb("sharedparam:exported", New With {.ok = False, .message = "엑셀 내보내기가 취소되었습니다."})
                     Return
                 End If
 
                 SendToWeb("sharedparam:exported", New With {.ok = True, .path = saved})
             Catch ex As Exception
                 SendToWeb("sharedparam:exported", New With {.ok = False, .message = ex.Message})
-                SendToWeb("revit:error", New With {.message = "엑셀 저장 실패: " & ex.Message})
+                SendToWeb("revit:error", New With {.message = "엑셀 내보내기 실패: " & ex.Message})
             End Try
         End Sub
 
