@@ -57,8 +57,18 @@ function configureBackButton(withBack, onBack) {
         _backBtn = document.createElement('button');
         _backBtn.className = 'btn btn-ghost';
         _backBtn.type = 'button';
-        _backBtn.textContent = '허브 홈으로';
+        const icon = document.createElement('img');
+        icon.className = 'back-btn-icon';
+        icon.src = 'assets/icons/HubHome_24.png';
+        icon.alt = '';
+        const label = document.createElement('span');
+        label.className = 'back-btn-label';
+        label.textContent = '허브 홈으로';
+        _backBtn.append(icon, label);
         left.prepend(_backBtn);
+    } else {
+        const label = _backBtn.querySelector('.back-btn-label');
+        if (label) label.textContent = '허브 홈으로';
     }
 
     _backHandler = onBack;
@@ -90,57 +100,10 @@ function buildBrand(host) {
     const wrap = div('topbar-brand');
     const logo = document.createElement('span');
     logo.className = 'topbar-logo';
-
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 48 48');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('focusable', 'false');
-    svg.classList.add('hub-logo');
-
-    const NS = svg.namespaceURI;
-    const defs = document.createElementNS(NS, 'defs');
-    const lg = document.createElementNS(NS, 'linearGradient');
-    lg.setAttribute('id', 'kkygrad');
-    lg.setAttribute('x1', '0'); lg.setAttribute('y1', '0');
-    lg.setAttribute('x2', '1'); lg.setAttribute('y2', '1');
-    const s1 = document.createElementNS(NS, 'stop'); s1.setAttribute('offset', '0'); s1.setAttribute('stop-color', 'currentColor');
-    const s2 = document.createElementNS(NS, 'stop'); s2.setAttribute('offset', '1'); s2.setAttribute('stop-color', 'currentColor'); s2.setAttribute('stop-opacity', '0.5');
-    lg.append(s1, s2); defs.append(lg);
-
-    const hex = document.createElementNS(NS, 'path');
-    hex.setAttribute('d', ['M', 24, 6, 'L', 38, 14, 'L', 38, 30, 'L', 24, 38, 'L', 10, 30, 'L', 10, 14, 'Z'].join(' '));
-    hex.setAttribute('fill', 'none');
-    hex.setAttribute('stroke', 'url(#kkygrad)');
-    hex.setAttribute('stroke-width', '2.8');
-    hex.setAttribute('stroke-linejoin', 'round');
-
-    const mono = document.createElementNS(NS, 'g');
-    mono.setAttribute('stroke', 'currentColor');
-    mono.setAttribute('stroke-width', '2.6');
-    mono.setAttribute('stroke-linecap', 'round');
-    mono.setAttribute('stroke-linejoin', 'round');
-    mono.setAttribute('fill', 'none');
-
-    const k1a = document.createElementNS(NS, 'path'); k1a.setAttribute('d', 'M12 16 L12 32');
-    const k1b = document.createElementNS(NS, 'path'); k1b.setAttribute('d', 'M12 24 L18 17');
-    const k1c = document.createElementNS(NS, 'path'); k1c.setAttribute('d', 'M12 24 L18 31');
-
-    const k2a = document.createElementNS(NS, 'path'); k2a.setAttribute('d', 'M22 16 L22 32');
-    const k2b = document.createElementNS(NS, 'path'); k2b.setAttribute('d', 'M22 24 L28 17');
-    const k2c = document.createElementNS(NS, 'path'); k2c.setAttribute('d', 'M22 24 L28 31');
-
-    const y1 = document.createElementNS(NS, 'path'); y1.setAttribute('d', 'M34 16 L29 21');
-    const y2 = document.createElementNS(NS, 'path'); y2.setAttribute('d', 'M34 16 L39 21');
-    const y3 = document.createElementNS(NS, 'path'); y3.setAttribute('d', 'M34 21 L34 32');
-
-    mono.append(k1a, k1b, k1c, k2a, k2b, k2c, y1, y2, y3);
-    const shadow = document.createElementNS(NS, 'ellipse');
-    shadow.setAttribute('cx', '24'); shadow.setAttribute('cy', '40');
-    shadow.setAttribute('rx', '10'); shadow.setAttribute('ry', '1.5');
-    shadow.setAttribute('fill', 'currentColor'); shadow.setAttribute('opacity', '0.12');
-
-    svg.append(defs, hex, mono, shadow);
-    logo.append(svg);
+    const logoImg = document.createElement('img');
+    logoImg.src = 'assets/icons/KKY_Tool_48.png';
+    logoImg.alt = 'KKY Tool';
+    logo.append(logoImg);
 
     const text = document.createElement('div');
     text.className = 'topbar-brand-text';

@@ -39,10 +39,12 @@ Namespace KKY_Tool_Revit
                 'TaskDialog.Show("RES", resNames)
 
                 Dim smallImg = LoadHubIcon(
+                    "KKY_Tool_Revit.Resources.Icons.KKY_Tool_16.png",
                     "KKY_Tool_Revit.Resources.Icons.KKY_Hub_16.png",
                     "KKY_Tool_Revit.Resources.icons.hub_16.png")
 
                 Dim largeImg = LoadHubIcon(
+                    "KKY_Tool_Revit.Resources.Icons.KKY_Tool_32.png",
                     "KKY_Tool_Revit.Resources.Icons.KKY_Hub_32.png",
                     "KKY_Tool_Revit.Resources.icons.hub_32.png")
 

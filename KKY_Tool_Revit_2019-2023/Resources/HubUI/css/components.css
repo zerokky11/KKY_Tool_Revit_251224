@@ -35,7 +35,7 @@
 }
 
 [data-theme="light"] .home-hero {
-    background: linear-gradient(135deg, rgba(0, 122, 204, 0.08), rgba(255, 255, 255, 0.96));
+    background: var(--surface-card);
 }
 
 @media (max-width: 960px) {
@@ -76,7 +76,7 @@
 }
 
 [data-theme="light"] .hero-meta .meta-card {
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--surface-card);
 }
 
 .hero-meta .meta-card span {
@@ -118,7 +118,7 @@
 }
 
 .layout-btn.is-active {
-    background: rgba(56, 189, 248, 0.18);
+    background: var(--accent-soft);
     color: var(--accent);
 }
 
@@ -212,8 +212,8 @@
 }
 
 [data-theme="light"] .card-icon {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(228, 239, 250, 0.78));
-    border: 1px solid rgba(13, 132, 217, 0.16);
+    background: var(--accent-soft);
+    border: 1px solid var(--border-soft);
 }
 
 .card-icon svg {
