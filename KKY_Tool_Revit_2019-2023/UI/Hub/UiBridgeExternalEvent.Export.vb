@@ -39,6 +39,29 @@ Namespace UI.Hub
             End Using
         End Sub
 
+        ' ========== Export: RVT 파일 추가(파일 대화상자) ==========
+        Private Sub HandleExportAddRvtFiles()
+            Using dlg As New System.Windows.Forms.OpenFileDialog()
+                dlg.Filter = "Revit Project (*.rvt)|*.rvt"
+                dlg.Multiselect = True
+                dlg.Title = "Export Points 대상 RVT 선택"
+                dlg.RestoreDirectory = True
+
+                If dlg.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Return
+
+                Dim files As New List(Of String)()
+                Dim dedup As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                For Each p In dlg.FileNames
+                    If String.IsNullOrWhiteSpace(p) Then Continue For
+                    If dedup.Add(p) Then files.Add(p)
+                Next
+
+                If files.Count > 0 Then
+                    _host?.SendToWeb("export:rvt-files", New With {.files = files})
+                End If
+            End Using
+        End Sub
+
         ' ========== Export: 미리보기 ==========
         Private Sub HandleExportPreview(app As UIApplication, payload As Dictionary(Of String, Object))
             ResetExportProgressState()

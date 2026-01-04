@@ -130,6 +130,7 @@ Namespace UI.Hub
             map.Add("connector:save-excel", "HandleConnectorSaveExcel")
             ' Export Points with Angle
             map.Add("export:browse-folder", "HandleExportBrowse")
+            map.Add("export:add-rvt-files", "HandleExportAddRvtFiles")
             map.Add("export:preview", "HandleExportPreview")
             map.Add("export:save-excel", "HandleExportSaveExcel")
             ' Shared Parameter Propagator

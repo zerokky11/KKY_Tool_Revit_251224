@@ -57,10 +57,13 @@ export function renderGuid(root) {
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
     const rvtActions = div('feature-actions');
-    const btnAdd = cardBtn('RVT 추가...', () => post('guid:add-files', { pick: 'files' }));
+    let btnRemove = null;
+    const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', { pick: 'files' }));
     const btnAddFolder = cardBtn('폴더 선택', () => post('guid:add-files', { pick: 'folder' }));
-    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); });
-    rvtActions.append(btnAdd, btnAddFolder, btnClear);
+    btnRemove = cardBtn('선택 제거', onRemoveSelected);
+    btnRemove.disabled = true;
+    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); syncRvtActionState(); });
+    rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear);
     rvtHeader.append(rvtTitle, rvtActions);
     const rvtTableWrap = div('guid-table-wrap guid-rvt-wrap');
     const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
@@ -74,8 +77,8 @@ export function renderGuid(root) {
     const tabs = div('feature-results-panel guid-results feature-tabs');
     const tabHead = div('feature-results-head');
     const tabBtns = div('pill-tabs');
-    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'pill-tab is-active'; btnTabSummary.textContent = '요약';
-    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'pill-tab'; btnTabDetail.textContent = '패밀리/파라미터';
+    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'pill-tab is-active'; btnTabSummary.innerHTML = `<span class="pill-label">요약</span><span class="pill-count">0</span>`;
+    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'pill-tab'; btnTabDetail.innerHTML = `<span class="pill-label">패밀리/파라미터</span><span class="pill-count">0</span>`;
     tabBtns.append(btnTabSummary, btnTabDetail);
     tabHead.append(tabBtns);
     tabs.append(tabHead);
@@ -87,8 +90,8 @@ export function renderGuid(root) {
     const summaryHead = document.createElement('thead');
     const summaryBody = document.createElement('tbody');
     summaryTable.append(summaryHead, summaryBody);
-    summaryTableWrap.append(summaryTable);
-    tabPanelSummary.append(summaryTableWrap);
+        summaryTableWrap.append(summaryTable);
+        tabPanelSummary.append(summaryTableWrap);
 
     const tabPanelDetail = div('guid-tab-panel is-hidden');
     const detailWrap = div('guid-detail-wrap');
@@ -115,6 +118,7 @@ export function renderGuid(root) {
 
     renderRvtList();
     syncTabState();
+    syncRvtActionState();
 
     // Host events
     onHost('guid:files', ({ paths }) => {
@@ -134,6 +138,7 @@ export function renderGuid(root) {
         } else {
             renderRvtList();
         }
+        syncRvtActionState();
     });
 
     onHost('guid:progress', (payload) => {
@@ -161,6 +166,7 @@ export function renderGuid(root) {
         state.activeDocKey = '';
         state.activeFamily = '';
         exportBtn.disabled = !hasRowsForExport();
+        updateTabCounts();
         paintSummary();
         paintDetail();
         syncTabState();
@@ -285,6 +291,7 @@ export function renderGuid(root) {
             tr.append(tdCk, tdIdx, tdName, tdPath);
             rvtBody.append(tr);
         });
+        syncRvtActionState();
     }
 
     function paintSummary() {
@@ -416,6 +423,7 @@ export function renderGuid(root) {
             state.activeTab = 'summary';
         }
         exportBtn.disabled = !hasRowsForExport();
+        updateTabCounts();
     }
 
     function setBusy(on) {
@@ -507,6 +515,23 @@ export function renderGuid(root) {
         if (norm === 'AUTOFIT') return '열 너비 자동 조정 중…';
         return message || '';
     }
+
+    function onRemoveSelected() {
+        if (!state.rvtChecked.size) { toast('제거할 RVT를 선택하세요.', 'warn'); return; }
+        state.rvtList = state.rvtList.filter(p => !state.rvtChecked.has(p));
+        state.rvtChecked = new Set(state.rvtList);
+        persistRvts();
+        renderRvtList();
+    }
+
+    function syncRvtActionState() {
+        if (btnRemove) btnRemove.disabled = state.rvtChecked.size === 0;
+    }
+
+    function updateTabCounts() {
+        setTabCount(btnTabSummary, state.summary.rows.length || 0);
+        setTabCount(btnTabDetail, state.detail.rows.length || 0);
+    }
 }
 
 function normalizeRvtPath(entry) {
@@ -531,6 +556,13 @@ function dedupPaths(list) {
         clean.push(path);
     });
     return clean;
+}
+
+function setTabCount(btn, count) {
+    if (!btn) return;
+    const badge = btn.querySelector('.pill-count');
+    if (!badge) return;
+    badge.textContent = Number.isFinite(count) ? count : 0;
 }
 
 function safe(v) {

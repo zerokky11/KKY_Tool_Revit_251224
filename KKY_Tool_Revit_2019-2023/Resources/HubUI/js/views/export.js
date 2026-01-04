@@ -28,6 +28,8 @@ export function renderExport(root) {
 
     const pick = cardBtn('폴더 선택', () => post('export:browse-folder', {}));
     pick.id = 'btnExPick';
+    const addFilesBtn = cardBtn('RVT 파일 추가', () => post('export:add-rvt-files', {}));
+    addFilesBtn.id = 'btnExAddFiles';
     const preview = cardBtn('추출 시작', () => {
       const targets = selectedFilePaths();
       if (!targets.length) { toast('선택된 RVT가 없습니다.', 'warn'); return; }
@@ -46,7 +48,7 @@ export function renderExport(root) {
     });
     save.id = 'btnExSave'; save.disabled = true;
     const actions = div('feature-actions');
-    actions.append(pick, preview, save);
+    actions.append(pick, addFilesBtn, preview, save);
     header.append(heading, actions);
     page.append(header);
 
@@ -54,6 +56,16 @@ export function renderExport(root) {
 
     const left = div('kkyt-left feature-results-panel');
     const lbar = div('kkyt-toolbar');
+    const removeBtn = cardBtn('선택 제거', () => {
+      const checked = state.files.filter(f => f.checked);
+      if (!checked.length) { toast('제거할 RVT를 선택하세요.', 'warn'); return; }
+      const removeSet = new Set(checked.map(f => f.path.toLowerCase()));
+      state.files = state.files.filter(f => !removeSet.has(f.path.toLowerCase()));
+      renderFiles();
+      repaintRows();
+      syncSaveState();
+    });
+    removeBtn.id = 'btnExRemove'; removeBtn.disabled = true;
     const clearBtn = cardBtn('목록 지우기', () => {
       state.files = [];
       state.folder = '';
@@ -63,9 +75,9 @@ export function renderExport(root) {
       syncSaveState();
     });
     const unitToggle = buildUnitToggle();
-    lbar.append(clearBtn, unitToggle);
-    const listWrap = document.createElement('div'); listWrap.className = 'kkyt-list export-file-list';
-    const tblWrap = document.createElement('table'); tblWrap.className = 'kkyt-file-table';
+    lbar.append(removeBtn, clearBtn, unitToggle);
+    const listWrap = div('guid-table-wrap export-table-wrap');
+    const tblWrap = document.createElement('table'); tblWrap.className = 'guid-rvt-table export-rvt-table';
     const filesHead = document.createElement('thead');
     const filesBody = document.createElement('tbody');
     tblWrap.append(filesHead, filesBody);
@@ -89,11 +101,16 @@ export function renderExport(root) {
         const list = Array.isArray(files) ? files : [];
         const root = folder || commonDir(list);
         state.folder = root || '';
-        state.files = list.map(path => ({
-          path,
-          rel: relPath(path, root),
-          checked: true
-        }));
+        state.files = toFileItems(list, state.folder);
+        renderFiles();
+    });
+
+    onHost('export:rvt-files', ({ files }) => {
+        const list = Array.isArray(files) ? files : [];
+        if (!list.length) return;
+        if (!state.folder) state.folder = commonDir(list) || state.folder || '';
+        const merged = [...state.files, ...toFileItems(list, state.folder)];
+        state.files = dedupFiles(merged);
         renderFiles();
     });
 
@@ -137,27 +154,35 @@ export function renderExport(root) {
         master.onchange = () => { state.files = state.files.map(f => ({ ...f, checked: master.checked })); renderFiles(); };
         masterCell.append(master);
         headRow.append(masterCell);
-        ['파일명', '상대 경로'].forEach(text => { const th = document.createElement('th'); th.textContent = text; headRow.append(th); });
+        ['#', '파일명', '경로'].forEach(text => { const th = document.createElement('th'); th.textContent = text; headRow.append(th); });
         filesHead.append(headRow);
 
         state.files.forEach((f, idx) => {
           const row = document.createElement('tr');
           const ckCell = document.createElement('td');
           const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!f.checked;
-          ck.onchange = () => { state.files[idx].checked = ck.checked; updateSelectionSummary(); syncPreviewState(); };
+          ck.onchange = () => { state.files[idx].checked = ck.checked; updateSelectionSummary(); syncPreviewState(); syncRemoveState(); };
           ckCell.append(ck); row.append(ckCell);
-          row.append(tdText(f.path.split(/[/\\]/).pop() || '—'));
-          row.append(tdText(f.rel || ''));
+          row.append(tdText(idx + 1));
+          row.append(tdText(f.name || f.path.split(/[/\\]/).pop() || '—'));
+          const pathCell = document.createElement('td'); pathCell.className = 'path-cell'; pathCell.textContent = f.rel || f.path;
+          row.append(pathCell);
           filesBody.append(row);
         });
         updateSelectionSummary();
         syncPreviewState();
+        syncRemoveState();
     }
 
     function updateSelectionSummary() {
         const folder = state.folder || (state.files[0] ? state.files[0].path?.replace?.(/[/\\][^/\\]+$/, '') : '');
         const picked = state.files.filter(f => f.checked).length;
         info.textContent = `${folder ? ('경로: ' + folder + ' · ') : ''}파일 ${state.files.length}개 중 ${picked}개 선택`;
+    }
+
+    function syncRemoveState() {
+      const btn = document.getElementById('btnExRemove');
+      if (btn) btn.disabled = state.files.every(f => !f.checked);
     }
 }
 
@@ -260,6 +285,31 @@ function repaintRows() {
 
 function convertRowsForSave() {
     return (state.rowsRaw || []).map(r => ({ ...r }));
+}
+
+function toFileItems(list, root) {
+    const base = root || commonDir(list);
+    return dedupFiles((list || []).map(path => {
+        const name = path?.split(/[\\/]/).pop() || path;
+        return {
+            path,
+            rel: relPath(path, base),
+            name,
+            checked: true
+        };
+    }));
+}
+
+function dedupFiles(items) {
+    const seen = new Set();
+    const res = [];
+    (items || []).forEach(f => {
+        const key = (f?.path || '').toLowerCase();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        res.push(f);
+    });
+    return res;
 }
 
 function syncSaveState() {
