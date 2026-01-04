@@ -84,7 +84,7 @@ Namespace Infrastructure
             Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, filePath)
 
-            Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+            Dim autoFitMessage As String = If(doAutoFit, "열 너비 자동 조정 중…", "빠른 모드: 열 너비 자동 조정 생략")
             If doAutoFit Then
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
                 Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(filePath)
@@ -185,7 +185,7 @@ Namespace Infrastructure
             Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, outPath)
 
-            Dim autoFitMessage As String = If(doAutoFit, "AutoFit 적용", "빠른 모드: AutoFit 생략")
+            Dim autoFitMessage As String = If(doAutoFit, "열 너비 자동 조정 중…", "빠른 모드: 열 너비 자동 조정 생략")
             If doAutoFit Then
                 Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
                 Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(outPath)

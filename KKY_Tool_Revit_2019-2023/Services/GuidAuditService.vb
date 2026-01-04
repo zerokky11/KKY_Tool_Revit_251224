@@ -126,7 +126,8 @@ Namespace Services
         ''' <summary>엑셀 저장 (AutoFit 사용 안 함)</summary>
         Public Shared Function Export(table As DataTable,
                                       sheetName As String,
-                                      Optional excelMode As String = "fast") As String
+                                      Optional excelMode As String = "fast",
+                                      Optional progressChannel As String = Nothing) As String
             If table Is Nothing OrElse table.Rows.Count = 0 Then Return String.Empty
             Dim doAutoFit As Boolean = False
             Try
@@ -136,7 +137,7 @@ Namespace Services
             Catch
                 doAutoFit = False
             End Try
-            Return ExcelCore.PickAndSaveXlsx(sheetName, table, $"{sheetName}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", doAutoFit)
+            Return ExcelCore.PickAndSaveXlsx(sheetName, table, $"{sheetName}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", doAutoFit, progressChannel)
         End Function
 
         Private Shared Function BuildTargets(app As UIApplication, rvtPaths As IEnumerable(Of String)) As List(Of TargetFile)
