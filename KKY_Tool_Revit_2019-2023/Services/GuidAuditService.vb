@@ -159,8 +159,8 @@ Namespace Services
                 If String.IsNullOrWhiteSpace(p) Then Continue For
                 Dim full As String = p
                 Try
-                    If Path.IsPathRooted(p) Then
-                        full = Path.GetFullPath(p)
+                    If System.IO.Path.IsPathRooted(p) Then
+                        full = System.IO.Path.GetFullPath(p)
                     Else
                         full = p.Trim()
                     End If
@@ -280,7 +280,7 @@ Namespace Services
 
             Dim isRooted As Boolean = False
             Try
-                isRooted = Path.IsPathRooted(requested)
+                isRooted = System.IO.Path.IsPathRooted(requested)
             Catch
                 isRooted = False
             End Try
@@ -309,7 +309,7 @@ Namespace Services
             End If
 
             Try
-                If Path.IsPathRooted(requested) AndAlso Not File.Exists(requested) Then
+                If System.IO.Path.IsPathRooted(requested) AndAlso Not File.Exists(requested) Then
                     failureReason = $"File not found: {requested}"
                     Return Nothing
                 End If
