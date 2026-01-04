@@ -98,51 +98,44 @@
   font-size: 12px;
 }
 
-.guid-tabs {
-  margin-top: 18px;
-  background: var(--panel);
-  border-radius: 14px;
-  box-shadow: var(--elev-1);
+.guid-results {
+  gap: 12px;
 }
 
-.guid-tab-buttons {
-  display: flex;
+.guid-results .pill-tabs {
+  margin-bottom: 0;
+}
+
+.pill-tab {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding: 10px 10px 0 10px;
 }
 
-.guid-tab-buttons .tab-btn {
-  padding: 10px 14px;
-  border-radius: 12px 12px 0 0;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  transition: all .14s ease;
-  white-space: nowrap;
-  font-weight: 600;
+.pill-count {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font-size: 12px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.guid-tab-buttons .tab-btn.is-active {
-  background: var(--card);
-  border-color: var(--border);
-  border-bottom-color: transparent;
-}
-
-.guid-tab-buttons .tab-btn:disabled {
-  opacity: .6;
-  cursor: not-allowed;
+.guid-tab-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 320px;
 }
 
 .guid-tab-panel {
-  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--surface-card);
-  border-radius: 0 0 12px 12px;
-  border: 1px solid var(--border-soft);
-  border-top: none;
+  min-height: 260px;
+  flex: 1 1 auto;
 }
 
 .guid-tab-panel.is-hidden {
@@ -150,25 +143,44 @@
 }
 
 .guid-detail-wrap {
-  display: flex;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
   gap: 12px;
+  min-height: 280px;
   align-items: stretch;
-  min-height: 360px;
-  flex-wrap: wrap;
+}
+
+@media (max-width: 1160px) {
+  .guid-detail-wrap {
+    grid-template-columns: 1fr;
+  }
 }
 
 .guid-table-wrap {
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   overflow: auto;
-  max-height: 520px;
+  max-height: none;
+  min-height: 240px;
+  flex: 1 1 auto;
   background: var(--surface-subtle);
 }
 
+.guid-rvt-wrap {
+  min-height: 0;
+  max-height: 220px;
+}
+
+.guid-detail-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
 .guid-detail-nav {
-  flex: 0 0 320px;
-  max-width: 420px;
-  max-height: 520px;
+  min-height: 0;
   overflow: auto;
   gap: 8px;
   border: 1px solid var(--border-soft);
