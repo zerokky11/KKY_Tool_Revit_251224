@@ -135,14 +135,16 @@
     margin-left: auto;
 }
 
-.conn-tabs {
+.conn-tabs,
+.pill-tabs {
     display: inline-flex;
     gap: 6px;
     margin-bottom: 8px;
     flex-wrap: wrap;
 }
 
-.conn-tab {
+.conn-tab,
+.pill-tab {
     padding: 4px 10px;
     border-radius: 999px;
     font-size: 12px;
@@ -153,10 +155,17 @@
     transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
 
-.conn-tab.is-active {
+.conn-tab.is-active,
+.pill-tab.is-active {
     background: linear-gradient(120deg, #4f46e5, #22d3ee);
     border-color: transparent;
     color: #f9fafb;
+}
+
+.conn-tab:disabled,
+.pill-tab:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .conn-chip {

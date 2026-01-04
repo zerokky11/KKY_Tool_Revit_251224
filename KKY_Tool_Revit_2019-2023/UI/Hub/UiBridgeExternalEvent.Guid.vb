@@ -63,7 +63,12 @@ Namespace UI.Hub
                 _guidDetail = Nothing
                 _guidMode = mode
 
-                Dim res = GuidAuditService.Run(app, mode, rvtPaths, AddressOf ReportGuidProgress)
+                Dim res = GuidAuditService.Run(app, mode, rvtPaths, AddressOf ReportGuidProgress,
+                                               Sub(msg As String)
+                                                   If Not String.IsNullOrWhiteSpace(msg) Then
+                                                       SendToWeb("guid:warn", New With {.message = msg})
+                                                   End If
+                                               End Sub)
                 _guidSummary = res.Summary
                 _guidDetail = res.Detail
 

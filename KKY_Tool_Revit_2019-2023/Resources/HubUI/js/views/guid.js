@@ -12,10 +12,11 @@ export function renderGuid(root) {
     clear(target);
     const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
 
+    const initialRvtList = loadRvtList();
     const state = {
         mode: 1,
-        rvtList: loadRvtList(),
-        rvtChecked: new Set(loadRvtList()),
+        rvtList: initialRvtList,
+        rvtChecked: new Set(initialRvtList),
         summary: { columns: [], rows: [] },
         detail: { columns: [], rows: [] },
         activeTab: 'summary',
@@ -37,7 +38,7 @@ export function renderGuid(root) {
 
     const modeToggle = buildModeToggle();
     const runBtn = cardBtn('검토 시작', onRun);
-    const exportBtn = cardBtn('엑셀 내보내기', onExport);
+    const exportBtn = cardBtn('엑셀 저장...', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
     const rightActions = div('guid-header-actions');
@@ -56,12 +57,12 @@ export function renderGuid(root) {
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
     const rvtActions = div('feature-actions');
-    const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', { pick: 'files' }));
+    const btnAdd = cardBtn('RVT 추가...', () => post('guid:add-files', { pick: 'files' }));
     const btnAddFolder = cardBtn('폴더 선택', () => post('guid:add-files', { pick: 'folder' }));
     const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); });
     rvtActions.append(btnAdd, btnAddFolder, btnClear);
     rvtHeader.append(rvtTitle, rvtActions);
-    const rvtTableWrap = div('guid-table-wrap');
+    const rvtTableWrap = div('guid-table-wrap guid-rvt-wrap');
     const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
     rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
@@ -70,13 +71,16 @@ export function renderGuid(root) {
     body.append(rvtSection);
 
     // Result tabs
-    const tabs = div('guid-tabs feature-results-panel');
-    const tabBtns = div('guid-tab-buttons');
-    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'tab-btn is-active'; btnTabSummary.textContent = '요약';
-    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'tab-btn'; btnTabDetail.textContent = '패밀리/파라미터';
+    const tabs = div('feature-results-panel guid-results feature-tabs');
+    const tabHead = div('feature-results-head');
+    const tabBtns = div('pill-tabs');
+    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'pill-tab is-active'; btnTabSummary.textContent = '요약';
+    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'pill-tab'; btnTabDetail.textContent = '패밀리/파라미터';
     tabBtns.append(btnTabSummary, btnTabDetail);
-    tabs.append(tabBtns);
+    tabHead.append(tabBtns);
+    tabs.append(tabHead);
 
+    const tabPanels = div('guid-tab-panels');
     const tabPanelSummary = div('guid-tab-panel');
     const summaryTableWrap = div('guid-table-wrap');
     const summaryTable = document.createElement('table'); summaryTable.className = 'guid-table';
@@ -102,7 +106,8 @@ export function renderGuid(root) {
     detailWrap.append(navPane, detailPane);
     tabPanelDetail.append(detailWrap);
 
-    tabs.append(tabPanelSummary, tabPanelDetail);
+    tabPanels.append(tabPanelSummary, tabPanelDetail);
+    tabs.append(tabPanels);
     body.append(tabs);
 
     page.append(body);
@@ -116,13 +121,17 @@ export function renderGuid(root) {
         const list = Array.isArray(paths) ? paths : [];
         let added = 0;
         list.forEach(p => {
-            if (!p || typeof p !== 'string') return;
-            const exists = state.rvtList.some(x => samePath(x, p));
-            if (!exists) { state.rvtList.push(p); added++; }
-            state.rvtChecked.add(p);
+            const path = normalizeRvtPath(p);
+            if (!path) return;
+            const exists = state.rvtList.some(x => samePath(x, path));
+            if (!exists) { state.rvtList.push(path); added++; }
+            state.rvtChecked.add(path);
         });
+        state.rvtList = dedupPaths(state.rvtList);
         if (added) {
             persistRvts();
+            renderRvtList();
+        } else {
             renderRvtList();
         }
     });
@@ -193,7 +202,8 @@ export function renderGuid(root) {
 
     function onRun() {
         if (state.busy) return;
-        const targets = state.rvtList.filter(p => state.rvtChecked.has(p));
+        state.rvtList = dedupPaths(state.rvtList);
+        const targets = dedupPaths(state.rvtList.filter(p => state.rvtChecked.has(p)));
         if (state.rvtList.length > 0 && targets.length === 0) {
             toast('선택된 RVT가 없습니다.', 'warn');
             return;
@@ -203,6 +213,7 @@ export function renderGuid(root) {
             mode: state.mode,
             rvtPaths: state.rvtList.length === 0 ? [] : targets
         };
+        persistRvts();
 
         setBusy(true);
         if (state.mode !== 2) state.activeTab = 'summary';
@@ -238,6 +249,7 @@ export function renderGuid(root) {
     }
 
     function renderRvtList() {
+        state.rvtList = dedupPaths(state.rvtList);
         state.rvtChecked = new Set(state.rvtList.filter(p => state.rvtChecked.has(p)));
         const master = rvtTable.querySelector('thead input[type="checkbox"]');
         const allChecked = state.rvtList.length > 0 && state.rvtList.every(p => state.rvtChecked.has(p));
@@ -246,6 +258,7 @@ export function renderGuid(root) {
         master.onchange = () => {
             if (master.checked) state.rvtChecked = new Set(state.rvtList);
             else state.rvtChecked.clear();
+            persistRvts();
             renderRvtList();
         };
 
@@ -261,6 +274,7 @@ export function renderGuid(root) {
             const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
             ck.onchange = () => {
                 if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
+                persistRvts();
                 renderRvtList();
             };
             tdCk.append(ck);
@@ -411,6 +425,7 @@ export function renderGuid(root) {
     }
 
     function persistRvts() {
+        state.rvtList = dedupPaths(state.rvtList);
         try { localStorage.setItem(LS_RVTS, JSON.stringify(state.rvtList || [])); } catch { }
     }
 
@@ -418,7 +433,7 @@ export function renderGuid(root) {
         try {
             const raw = localStorage.getItem(LS_RVTS);
             const arr = JSON.parse(raw || '[]');
-            if (Array.isArray(arr)) return arr;
+            if (Array.isArray(arr)) return dedupPaths(arr);
         } catch { }
         return [];
     }
@@ -492,6 +507,30 @@ export function renderGuid(root) {
         if (norm === 'AUTOFIT') return '열 너비 자동 조정 중…';
         return message || '';
     }
+}
+
+function normalizeRvtPath(entry) {
+    if (!entry) return '';
+    if (typeof entry === 'string') return entry.trim();
+    if (typeof entry === 'object') {
+        if (typeof entry.path === 'string') return entry.path.trim();
+        if (typeof entry.fullPath === 'string') return entry.fullPath.trim();
+    }
+    return '';
+}
+
+function dedupPaths(list) {
+    const seen = new Set();
+    const clean = [];
+    (list || []).forEach(item => {
+        const path = normalizeRvtPath(item);
+        if (!path) return;
+        const key = path.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        clean.push(path);
+    });
+    return clean;
 }
 
 function safe(v) {

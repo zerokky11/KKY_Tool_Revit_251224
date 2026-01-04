@@ -30,7 +30,7 @@ export function renderExport(root) {
     pick.id = 'btnExPick';
     const preview = cardBtn('추출 시작', () => {
       const targets = selectedFilePaths();
-      if (!targets.length) { toast('미리볼 파일을 선택하세요.', 'warn'); return; }
+      if (!targets.length) { toast('선택된 RVT가 없습니다.', 'warn'); return; }
       setWorking(true);
       startProgress('COLLECT', '미리보기 준비 중…', targets.length);
       post('export:preview', { files: targets, unit: state.unit });

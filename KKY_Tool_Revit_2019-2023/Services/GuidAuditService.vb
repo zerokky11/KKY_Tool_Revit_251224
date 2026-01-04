@@ -41,7 +41,8 @@ Namespace Services
         Public Shared Function Run(app As UIApplication,
                                    mode As Integer,
                                    rvtPaths As IEnumerable(Of String),
-                                   progress As Action(Of Integer, String)) As RunResult
+                                   progress As Action(Of Integer, String),
+                                   Optional warn As Action(Of String) = Nothing) As RunResult
 
             If app Is Nothing Then Throw New ArgumentNullException(NameOf(app))
 
@@ -63,17 +64,24 @@ Namespace Services
                 Dim target = targets(i)
                 Dim openedByMe As Boolean = False
                 Dim doc As Document = Nothing
+                Dim openError As String = ""
 
                 Try
                     ReportProgress(progress, total, i + 1, 0.02R, $"문서 여는 중... {i + 1}/{total} {target.Name}")
-                    doc = ResolveOrOpenDocument(app, app.ActiveUIDocument?.Document, target.Path, openedByMe)
+                    doc = ResolveOrOpenDocument(app, app.ActiveUIDocument?.Document, target.Path, openedByMe, openError)
 
                     If doc Is Nothing Then
                         Dim fail = Auditors.MakeFailureSummaryTable(mode)
-                        Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "OPEN_FAIL", "문서 열기 실패")
+                        Dim note = BuildOpenFailNotes(openError, target.Path)
+                        Dim shortReason = ShortenReason(note)
+                        If warn IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(note) Then
+                            warn(note)
+                        End If
+                        ReportProgress(progress, total, i + 1, 0.08R, $"문서 열기 실패: {target.Name} - {shortReason}")
+                        Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "OPEN_FAIL", note)
                         summary = MergeTable(summary, fail)
                         Continue For
-                End If
+                    End If
 
                 Dim rvtName As String = GetRvtName(doc, target.Path)
                 Dim captureIndex As Integer = i
@@ -102,7 +110,9 @@ Namespace Services
 
                 Catch ex As Exception
                     Dim fail = Auditors.MakeFailureSummaryTable(mode)
-                    Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "ERROR", ex.Message)
+                    Dim note = BuildExceptionNotes(ex, target.Path)
+                    ReportProgress(progress, total, i + 1, 0.08R, $"문서 처리 실패: {target.Name} - {ShortenReason(note)}")
+                    Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "ERROR", note)
                     summary = MergeTable(summary, fail)
 
                 Finally
@@ -149,8 +159,13 @@ Namespace Services
                 If String.IsNullOrWhiteSpace(p) Then Continue For
                 Dim full As String = p
                 Try
-                    full = Path.GetFullPath(p)
+                    If Path.IsPathRooted(p) Then
+                        full = Path.GetFullPath(p)
+                    Else
+                        full = p.Trim()
+                    End If
                 Catch
+                    full = p
                 End Try
                 If dedup.Add(full) Then
                     list.Add(New TargetFile() With {.Path = full, .Name = SafeFileName(full)})
@@ -216,87 +231,187 @@ Namespace Services
             cb(pct, text)
         End Sub
 
+        Private Shared Function BuildOpenFailNotes(reason As String, inputPath As String) As String
+            Dim trimmed = If(reason, "").Trim()
+            Dim hasPathInReason As Boolean = False
+            Try
+                hasPathInReason = Not String.IsNullOrWhiteSpace(inputPath) AndAlso
+                                  trimmed.IndexOf(inputPath, StringComparison.OrdinalIgnoreCase) >= 0
+            Catch
+                hasPathInReason = False
+            End Try
+            Dim pathPart = If(String.IsNullOrWhiteSpace(inputPath) OrElse hasPathInReason, "", $" [Path: {inputPath}]")
+            If String.IsNullOrWhiteSpace(trimmed) Then
+                Return $"문서 열기 실패{pathPart}"
+            End If
+            Return $"{trimmed}{pathPart}"
+        End Function
+
+        Private Shared Function BuildExceptionNotes(ex As Exception, inputPath As String) As String
+            If ex Is Nothing Then Return BuildOpenFailNotes(String.Empty, inputPath)
+
+            Dim hrPart As String = ""
+            Try
+                hrPart = $" (0x{ex.HResult:X8})"
+            Catch
+                hrPart = ""
+            End Try
+
+            Return BuildOpenFailNotes($"{ex.Message}{hrPart}", inputPath)
+        End Function
+
+        Private Shared Function ShortenReason(reason As String) As String
+            If String.IsNullOrWhiteSpace(reason) Then Return String.Empty
+            Dim firstLine As String = reason.Replace(ControlChars.Cr, " ").Replace(ControlChars.Lf, " ").Trim()
+            If firstLine.Length > 120 Then
+                Return firstLine.Substring(0, 117) & "..."
+            End If
+            Return firstLine
+        End Function
+
         '=========================================================
         ' Central(Workshared) => Detach + CloseAllWorksets
         '=========================================================
-        Private Shared Function ResolveOrOpenDocument(uiApp As UIApplication, activeDoc As Document, path As String, ByRef openedByMe As Boolean) As Document
+        Private Shared Function ResolveOrOpenDocument(uiApp As UIApplication, activeDoc As Document, path As String, ByRef openedByMe As Boolean, ByRef failureReason As String) As Document
             openedByMe = False
+            failureReason = String.Empty
 
-            Dim activePath As String = ""
-            Try : activePath = activeDoc?.PathName : Catch : activePath = "" : End Try
+            Dim requested As String = If(path, "").Trim()
 
-            If String.IsNullOrWhiteSpace(path) OrElse
-               (Not String.IsNullOrWhiteSpace(activePath) AndAlso String.Equals(activePath, path, StringComparison.OrdinalIgnoreCase)) Then
+            Dim isRooted As Boolean = False
+            Try
+                isRooted = Path.IsPathRooted(requested)
+            Catch
+                isRooted = False
+            End Try
+
+            Dim allowNameMatch As Boolean = (Not isRooted) AndAlso requested.IndexOf(":"c) = -1 AndAlso requested.IndexOf("\"c) = -1
+
+            If String.IsNullOrWhiteSpace(requested) Then
                 Return activeDoc
             End If
 
-            Try
-                For Each d As Document In uiApp.Application.Documents
-                    Dim dp As String = ""
-                    Try : dp = d.PathName : Catch : dp = "" : End Try
-                    If Not String.IsNullOrWhiteSpace(dp) AndAlso String.Equals(dp, path, StringComparison.OrdinalIgnoreCase) Then
-                        Return d
-                    End If
-                Next
-            Catch
-            End Try
+            If IsMatchingDoc(activeDoc, requested, allowNameMatch) Then
+                Return activeDoc
+            End If
 
-            If Not File.Exists(path) Then Return Nothing
+            Dim opened = FindOpenDocument(uiApp, requested, allowNameMatch)
+            If opened IsNot Nothing Then Return opened
 
-            Dim app = uiApp.Application
-            Dim mp As ModelPath = Nothing
-            Try
-                mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(path)
-            Catch
-                mp = Nothing
-            End Try
-            If mp Is Nothing Then Return Nothing
+            If allowNameMatch Then
+                failureReason = $"Invalid path: {requested}"
+                Return Nothing
+            End If
 
-            Dim opt As New OpenOptions()
-            Dim applyDetachCloseAll As Boolean = False
-
-            Try
-                Dim bfi = BasicFileInfo.Extract(path)
-                If bfi IsNot Nothing AndAlso bfi.IsWorkshared Then
-                    Dim isCentral As Boolean = True
-                    Try
-                        Dim pIsCentral = bfi.GetType().GetProperty("IsCentral", BindingFlags.Public Or BindingFlags.Instance)
-                        If pIsCentral IsNot Nothing Then
-                            isCentral = Convert.ToBoolean(pIsCentral.GetValue(bfi, Nothing))
-                        End If
-                    Catch
-                        isCentral = True
-                    End Try
-                    applyDetachCloseAll = isCentral
-                End If
-            Catch
-                applyDetachCloseAll = False
-            End Try
-
-            If applyDetachCloseAll Then
-                Try
-                    opt.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets
-                    Dim wc As New WorksetConfiguration(WorksetConfigurationOption.CloseAllWorksets)
-                    opt.SetOpenWorksetsConfiguration(wc)
-                Catch
-                End Try
+            If Not isRooted Then
+                failureReason = $"Invalid path: {requested}"
+                Return Nothing
             End If
 
             Try
-                Dim d = app.OpenDocumentFile(mp, opt)
-                openedByMe = True
-                Return d
-            Catch
-                Try
-                    Dim opt2 As New OpenOptions()
-                    Dim d2 = app.OpenDocumentFile(mp, opt2)
-                    openedByMe = True
-                    Return d2
-                Catch
-                    openedByMe = False
+                If Path.IsPathRooted(requested) AndAlso Not File.Exists(requested) Then
+                    failureReason = $"File not found: {requested}"
                     Return Nothing
-                End Try
+                End If
+            Catch ex As Exception
+                failureReason = BuildExceptionNotes(ex, requested)
+                Return Nothing
             End Try
+
+            Dim mp As ModelPath = Nothing
+            Try
+                mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(requested)
+            Catch ex As Exception
+                failureReason = BuildExceptionNotes(ex, requested)
+                mp = Nothing
+            End Try
+            If mp Is Nothing Then
+                If String.IsNullOrWhiteSpace(failureReason) Then failureReason = $"경로 변환 실패 [Path: {requested}]"
+                Return Nothing
+            End If
+
+            Dim preferDetach As Boolean = False
+            Try
+                Dim bfi = BasicFileInfo.Extract(requested)
+                If bfi Is Nothing Then
+                    preferDetach = True
+                ElseIf bfi.IsWorkshared Then
+                    preferDetach = True
+                End If
+            Catch
+                preferDetach = True
+            End Try
+
+            Dim attempts As New List(Of OpenOptions)()
+            If preferDetach Then attempts.Add(CreateDetachOptions())
+            attempts.Add(New OpenOptions())
+
+            Dim app = uiApp.Application
+            For Each opt In attempts
+                Try
+                    Dim d = app.OpenDocumentFile(mp, opt)
+                    openedByMe = True
+                    failureReason = String.Empty
+                    Return d
+                Catch ex As Exception
+                    failureReason = BuildExceptionNotes(ex, requested)
+                End Try
+            Next
+
+            openedByMe = False
+            Return Nothing
+        End Function
+
+        Private Shared Function CreateDetachOptions() As OpenOptions
+            Dim opt As New OpenOptions()
+            Try
+                opt.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets
+                Dim wc As New WorksetConfiguration(WorksetConfigurationOption.CloseAllWorksets)
+                opt.SetOpenWorksetsConfiguration(wc)
+            Catch
+            End Try
+            Return opt
+        End Function
+
+        Private Shared Function FindOpenDocument(uiApp As UIApplication, requested As String, allowNameMatch As Boolean) As Document
+            If uiApp Is Nothing Then Return Nothing
+            Try
+                For Each d As Document In uiApp.Application.Documents
+                    If IsMatchingDoc(d, requested, allowNameMatch) Then Return d
+                Next
+            Catch
+            End Try
+            Return Nothing
+        End Function
+
+        Private Shared Function IsMatchingDoc(doc As Document, requested As String, allowNameMatch As Boolean) As Boolean
+            If doc Is Nothing Then Return False
+
+            Dim dp As String = ""
+            Try : dp = doc.PathName : Catch : dp = "" : End Try
+            If Not String.IsNullOrWhiteSpace(dp) AndAlso String.Equals(dp, requested, StringComparison.OrdinalIgnoreCase) Then
+                Return True
+            End If
+
+            If allowNameMatch Then
+                Dim fileOnly As String = ""
+                Try
+                    fileOnly = Path.GetFileName(dp)
+                Catch
+                    fileOnly = ""
+                End Try
+                If Not String.IsNullOrWhiteSpace(fileOnly) AndAlso String.Equals(fileOnly, requested, StringComparison.OrdinalIgnoreCase) Then
+                    Return True
+                End If
+
+                Dim title As String = ""
+                Try : title = doc.Title : Catch : title = "" : End Try
+                If Not String.IsNullOrWhiteSpace(title) AndAlso String.Equals(title, requested, StringComparison.OrdinalIgnoreCase) Then
+                    Return True
+                End If
+            End If
+
+            Return False
         End Function
 
         '=========================================================
@@ -572,19 +687,24 @@ Namespace Services
                         famCat = ""
                     End Try
 
-                    Try
-                        If fam.IsInPlace Then
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "", "", "SKIP_INPLACE", "In-place family")
-                            Continue For
-                        End If
-                    Catch
-                    End Try
-
                     Dim famDoc As Document = Nothing
                     Try
-                        famDoc = doc.EditFamily(fam)
+                        Dim isInPlace As Boolean = False
+                        Try
+                            isInPlace = fam.IsInPlace
+                        Catch
+                            isInPlace = False
+                        End Try
+                        If isInPlace Then Continue For
+
+                        Try
+                            famDoc = doc.EditFamily(fam)
+                        Catch ex As InvalidOperationException
+                            famDoc = Nothing
+                            Continue For
+                        End Try
+
                         If famDoc Is Nothing OrElse Not famDoc.IsFamilyDocument Then
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "", "", "OPEN_FAIL", "EditFamily 실패")
                             Continue For
                         End If
 
