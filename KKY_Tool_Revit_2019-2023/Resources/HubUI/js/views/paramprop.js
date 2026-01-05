@@ -240,7 +240,7 @@ export function renderParamProp(root) {
         setBusy(false);
         exportBtn.disabled = state.lastDetails.length === 0;
         if (ok && path) {
-            showExcelSavedDialog('엑셀 저장이 완료되었습니다.', path, (p) => post('excel:open', { path: p }));
+            showExcelSavedDialog('엑셀 내보내기가 완료되었습니다.', path, (p) => post('excel:open', { path: p }));
         } else {
             toast(message || '엑셀 내보내기에 실패했습니다.', 'err');
         }
@@ -271,7 +271,7 @@ export function renderParamProp(root) {
             toast('최근 연동 결과가 없습니다.', 'info');
             return;
         }
-        setBusy(true, '엑셀 저장 중…');
+        setBusy(true, '엑셀 내보내기 중…');
         chooseExcelMode((mode) => post('sharedparam:export-excel', { excelMode: mode || 'fast' }));
     }
 

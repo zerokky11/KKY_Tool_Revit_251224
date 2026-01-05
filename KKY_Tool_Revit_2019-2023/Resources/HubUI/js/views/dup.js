@@ -232,7 +232,7 @@ export function renderDup(root) {
     exporting = phase !== 'DONE' && phase !== 'ERROR';
     exportBtn.disabled = exporting || rows.length === 0;
 
-    ProgressDialog.show('중복검토 엑셀 저장', subtitle);
+    ProgressDialog.show('중복검토 엑셀 내보내기', subtitle);
     ProgressDialog.update(percent, subtitle, detail);
 
     if (!exporting) {

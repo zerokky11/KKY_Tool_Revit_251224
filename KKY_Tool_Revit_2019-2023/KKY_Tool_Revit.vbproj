@@ -139,9 +139,19 @@
 	<!-- 리소스 -->
 	<ItemGroup>
 		<EmbeddedResource Include="Resources\icons\hub_16.png" Condition="Exists('Resources\icons\hub_16.png')">
+			<LogicalName>KKY_Tool_Revit.Resources.Icons.KKY_Hub_16.png</LogicalName>
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</EmbeddedResource>
 		<EmbeddedResource Include="Resources\icons\hub_32.png" Condition="Exists('Resources\icons\hub_32.png')">
+			<LogicalName>KKY_Tool_Revit.Resources.Icons.KKY_Hub_32.png</LogicalName>
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Resources\icons\KKY_Tool_16.png" Condition="Exists('Resources\icons\KKY_Tool_16.png')">
+			<LogicalName>KKY_Tool_Revit.Resources.Icons.KKY_Tool_16.png</LogicalName>
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Resources\icons\KKY_Tool_32.png" Condition="Exists('Resources\icons\KKY_Tool_32.png')">
+			<LogicalName>KKY_Tool_Revit.Resources.Icons.KKY_Tool_32.png</LogicalName>
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</EmbeddedResource>
 		<EmbeddedResource Include="Resources\icons\hub_64.png" Condition="Exists('Resources\icons\hub_64.png')">
@@ -150,6 +160,10 @@
 		<Content Include="Resources\HubUI\**\*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+	</ItemGroup>
+	<ItemGroup>
+	  <EmbeddedResource Include="Resources\HubUI\assets\icons\HubHome_24.png" />
+	  <EmbeddedResource Include="Resources\HubUI\assets\icons\KKY_Tool_48.png" />
 	</ItemGroup>
 
 	<!-- ✅ 빌드마다 .addin 생성: Application 로드 (리본 탭 생성) -->

@@ -38,7 +38,7 @@ export function renderGuid(root) {
 
     const modeToggle = buildModeToggle();
     const runBtn = cardBtn('검토 시작', onRun);
-    const exportBtn = cardBtn('엑셀 저장...', onExport);
+    const exportBtn = cardBtn('엑셀 내보내기', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
     const rightActions = div('guid-header-actions');
@@ -182,9 +182,9 @@ export function renderGuid(root) {
         setBusy(false);
         lastExcelPct = 0;
         if (path) {
-            showExcelSavedDialog('엑셀로 저장했습니다.', path, (p) => post('excel:open', { path: p }));
+            showExcelSavedDialog('엑셀로 내보냈습니다.', path, (p) => post('excel:open', { path: p }));
         } else {
-            toast('엑셀 저장 완료', 'ok');
+            toast('엑셀 내보내기 완료', 'ok');
         }
     });
 
@@ -235,7 +235,7 @@ export function renderGuid(root) {
             const excelMode = mode || 'fast';
             lastExcelPct = 0;
             setBusy(true);
-            ProgressDialog.show('엑셀 저장', '엑셀 파일을 만드는 중…');
+            ProgressDialog.show('엑셀 내보내기', '엑셀 파일을 만드는 중…');
             post('guid:export', { which, excelMode });
         });
     }
@@ -466,7 +466,7 @@ export function renderGuid(root) {
         const exporting = phase !== 'DONE' && phase !== 'ERROR';
         if (!state.busy && exporting) setBusy(true);
 
-        ProgressDialog.show('엑셀 저장', subtitle || '엑셀 저장 중…');
+        ProgressDialog.show('엑셀 내보내기', subtitle || '엑셀 내보내기 중…');
         ProgressDialog.update(percent, subtitle, detail);
 
         if (!exporting) {
@@ -502,11 +502,11 @@ export function renderGuid(root) {
         switch (norm) {
             case 'EXCEL_INIT': return '엑셀 워크북 준비 중';
             case 'EXCEL_WRITE': return `엑셀 데이터 작성 중 (${current}/${Math.max(total, current || 1)})`;
-            case 'EXCEL_SAVE': return '엑셀 저장 중';
+            case 'EXCEL_SAVE': return '엑셀 내보내기 중';
             case 'AUTOFIT': return '열 너비 자동 조정 중…';
-            case 'DONE': return '엑셀 저장 완료';
-            case 'ERROR': return '엑셀 저장 오류';
-            default: return '엑셀 저장 중…';
+            case 'DONE': return '엑셀 내보내기 완료';
+            case 'ERROR': return '엑셀 내보내기 오류';
+            default: return '엑셀 내보내기 중…';
         }
     }
 
