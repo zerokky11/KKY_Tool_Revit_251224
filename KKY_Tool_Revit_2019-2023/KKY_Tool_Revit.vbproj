@@ -161,6 +161,10 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
+	<ItemGroup>
+	  <EmbeddedResource Include="Resources\icons\HubHome_24.png" />
+	  <EmbeddedResource Include="Resources\icons\KKY_Tool_48.png" />
+	</ItemGroup>
 
 	<!-- ✅ 빌드마다 .addin 생성: Application 로드 (리본 탭 생성) -->
 	<Target Name="CreateAddin" AfterTargets="Build">
