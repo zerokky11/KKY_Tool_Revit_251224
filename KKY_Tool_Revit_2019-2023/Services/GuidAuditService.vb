@@ -354,6 +354,15 @@ Namespace Services
             Return master
         End Function
 
+        Private Shared Function NormalizeName(s As String) As String
+            If String.IsNullOrWhiteSpace(s) Then Return ""
+            Dim t As String = s.Replace(ChrW(&HA0), " ").Trim()
+            While t.Contains("  ")
+                t = t.Replace("  ", " ")
+            End While
+            Return t
+        End Function
+
         Private Shared Function BuildDocSharedGuidMap(doc As Document) As Dictionary(Of String, List(Of Guid))
             Dim map As New Dictionary(Of String, List(Of Guid))(StringComparer.OrdinalIgnoreCase)
             If doc Is Nothing Then Return map
@@ -368,7 +377,7 @@ Namespace Services
                         def = Nothing
                     End Try
                     Dim name As String = ""
-                    Try : If def IsNot Nothing Then name = def.Name : Catch : name = "" : End Try
+                    Try : name = NormalizeName(def.Name) : Catch : name = "" : End Try
                     If String.IsNullOrWhiteSpace(name) Then Continue For
                     Dim g As Guid = Guid.Empty
                     Try
@@ -647,7 +656,7 @@ Namespace Services
                         Dim g As Guid = Guid.Empty
                         If Not TryGetDefinitionGuid(d, g) Then Continue For
 
-                        Dim name = d.Name
+                        Dim name = NormalizeName(d.Name)
                         If Not map.ContainsKey(name) Then map(name) = New List(Of Guid)()
                         map(name).Add(g)
                     Next
@@ -744,6 +753,23 @@ Namespace Services
                                                             Optional progress As Action(Of Integer, Integer) = Nothing) As DataTable
 
                 Dim dt As DataTable = MakeProjectTable()
+                Dim speNameMap As New Dictionary(Of String, List(Of Guid))(StringComparer.OrdinalIgnoreCase)
+                Dim speIdMap As New Dictionary(Of Integer, Guid)
+                Try
+                    Dim col = New FilteredElementCollector(doc).OfClass(GetType(SharedParameterElement)).Cast(Of SharedParameterElement)()
+                    For Each spe In col
+                        If spe Is Nothing Then Continue For
+                        Dim n As String = ""
+                        Try : n = NormalizeName(spe.Name) : Catch : n = "" : End Try
+                        Dim g As Guid = Guid.Empty
+                        Try : g = spe.GuidValue : Catch : g = Guid.Empty : End Try
+                        If g = Guid.Empty Then Continue For
+                        If Not speNameMap.ContainsKey(n) Then speNameMap(n) = New List(Of Guid)()
+                        speNameMap(n).Add(g)
+                        speIdMap(spe.Id.IntegerValue) = g
+                    Next
+                Catch
+                End Try
 
                 Dim bindings As BindingMap = doc.ParameterBindings
                 Dim iter As DefinitionBindingMapIterator = bindings.ForwardIterator()
@@ -791,7 +817,7 @@ Namespace Services
                     If def Is Nothing Then Continue While
 
                     Dim name As String = ""
-                    Try : name = def.Name : Catch : name = "" : End Try
+                    Try : name = NormalizeName(def.Name) : Catch : name = "" : End Try
 
                     Dim kind As String = "Project"
                     Dim projGuid As String = ""
@@ -801,28 +827,41 @@ Namespace Services
                     Dim guidSource As String = ""
                     Dim gProj As Guid = Guid.Empty
 
-                    If TryGetDefinitionGuidSafe(def, doc, gProj, guidSource) Then
+                    If TryGetDefinitionGuidSafe(def, doc, gProj, guidSource, speIdMap) Then
                         kind = "Shared"
                     Else
                         Dim sharedGuids As List(Of Guid) = Nothing
-                        If docSharedMap IsNot Nothing AndAlso docSharedMap.TryGetValue(name, sharedGuids) Then
+                        If speNameMap.TryGetValue(name, sharedGuids) Then
                             If sharedGuids IsNot Nothing AndAlso sharedGuids.Count > 0 Then
                                 kind = "Shared"
                                 gProj = sharedGuids(0)
-                                guidSource = "SharedParameterElement"
-                                If sharedGuids.Count > 1 Then notes = MergeNotes(notes, "동일 이름 SharedParameterElement 여러 개")
+                                guidSource = "SPE(Name)"
+                                If sharedGuids.Count > 1 Then notes = MergeNotes(notes, $"DocSharedCount: {sharedGuids.Count}")
                             End If
                         End If
                     End If
 
                     If String.Equals(kind, "Shared", StringComparison.OrdinalIgnoreCase) Then
-                        projGuid = If(gProj = Guid.Empty, "", gProj.ToString())
-                        Dim fileGuids As List(Of Guid) = Nothing
-                        If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(name, fileGuids) Then
-                            fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                            If fileGuids.Count > 1 Then notes = MergeNotes(notes, "동일 이름 GUID 여러 개")
+                        Dim docGuids As New List(Of Guid)()
+                        If gProj <> Guid.Empty Then docGuids.Add(gProj)
+                        Dim nameGuids As List(Of Guid) = Nothing
+                        If speNameMap.TryGetValue(name, nameGuids) AndAlso nameGuids IsNot Nothing Then
+                            For Each g In nameGuids
+                                If g <> Guid.Empty AndAlso Not docGuids.Contains(g) Then docGuids.Add(g)
+                            Next
+                        End If
+                        projGuid = If(docGuids.Count > 0, docGuids(0).ToString(), "")
+                        If docGuids.Count > 1 Then notes = MergeNotes(notes, $"DocSharedCount: {docGuids.Count}")
 
-                            If gProj <> Guid.Empty AndAlso fileGuids.Any(Function(x) x = gProj) Then
+                        Dim fileGuids As List(Of Guid) = Nothing
+                        If fileMap Is Not Nothing AndAlso fileMap.TryGetValue(name, fileGuids) Then
+                            Dim fileList = fileGuids.Select(Function(x) x.ToString()).Distinct().ToList()
+                            fileGuid = String.Join("; ", fileList)
+                            If fileList.Count > 1 Then notes = MergeNotes(notes, "동일 이름 GUID 여러 개")
+
+                            Dim hasIntersect = docGuids.Any(Function(g) fileGuids.Any(Function(fg) fg = g))
+                            If hasIntersect Then
+                                projGuid = docGuids.First(Function(g) fileGuids.Any(Function(fg) fg = g)).ToString()
                                 result = "OK"
                             Else
                                 result = "MISMATCH"
@@ -830,20 +869,20 @@ Namespace Services
                         Else
                             result = "NOT_FOUND_IN_FILE"
                         End If
+
                         If Not String.IsNullOrWhiteSpace(guidSource) Then
                             notes = MergeNotes(notes, $"GUID Source: {guidSource}")
                         End If
                     Else
                         result = "PROJECT_PARAM"
                     End If
-
                     AddProjectRow(dt, rvtName, rvtPath, name, result, notes, kind, projGuid, fileGuid)
                 End While
 
                 Return dt
             End Function
 
-            Private Shared Function TryGetDefinitionGuidSafe(def As Definition, doc As Document, ByRef g As Guid, ByRef source As String) As Boolean
+            Private Shared Function TryGetDefinitionGuidSafe(def As Definition, doc As Document, ByRef g As Guid, ByRef source As String, speIdMap As Dictionary(Of Integer, Guid)) As Boolean
                 g = Guid.Empty
                 source = ""
                 If def Is Nothing Then Return False
@@ -857,7 +896,7 @@ Namespace Services
                 End Try
                 Try
                     Dim p = def.GetType().GetProperty("GUID", BindingFlags.Public Or BindingFlags.Instance)
-                    If p IsNot Nothing Then
+                    If p Is Not Nothing Then
                         Dim v = p.GetValue(def, Nothing)
                         If v IsNot Nothing AndAlso TypeOf v Is Guid Then
                             g = DirectCast(v, Guid)
@@ -872,10 +911,9 @@ Namespace Services
                     If pid IsNot Nothing AndAlso doc IsNot Nothing Then
                         Dim idObj = pid.GetValue(def, Nothing)
                         If TypeOf idObj Is ElementId Then
-                            Dim spe As SharedParameterElement = TryCast(doc.GetElement(DirectCast(idObj, ElementId)), SharedParameterElement)
-                            If spe IsNot Nothing Then
-                                g = spe.GuidValue
-                                source = "Definition.Id->SharedParameterElement"
+                            Dim idInt As Integer = DirectCast(idObj, ElementId).IntegerValue
+                            If speIdMap IsNot Nothing AndAlso speIdMap.TryGetValue(idInt, g) Then
+                                source = "SPE(Id)"
                                 If g <> Guid.Empty Then Return True
                             End If
                         End If
