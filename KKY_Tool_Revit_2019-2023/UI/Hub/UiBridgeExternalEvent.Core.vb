@@ -154,6 +154,8 @@ Namespace UI.Hub
             map.Add("guid:add-files", "HandleGuidAddFiles")
             map.Add("guid:run", "HandleGuidRun")
             map.Add("guid:export", "HandleGuidExport")
+            map.Add("guid:request-family-detail", "HandleGuidRequestFamilyDetail")
+            map.Add("guid:request-family-detail", "HandleGuidRequestFamilyDetail")
 
             Dim methodName As String = Nothing
             If Not map.TryGetValue(name, methodName) Then

@@ -27,7 +27,8 @@ Namespace Services
         Public Class RunResult
             Public Property IncludeFamily As Boolean
             Public Property Project As DataTable
-            Public Property Family As DataTable
+            Public Property FamilyIndex As List(Of GuidFamilyIndexItem)
+            Public Property FamilyLookup As Dictionary(Of String, DataTable)
         End Class
 
         Private Class TargetFile
@@ -58,7 +59,8 @@ Namespace Services
 
             Dim total As Integer = targets.Count
             Dim projectTable As DataTable = Nothing
-            Dim familyTable As DataTable = Nothing
+            Dim familyLookup As Dictionary(Of String, DataTable) = Nothing
+            Dim familyIndex As List(Of GuidFamilyIndexItem) = Nothing
 
             For i As Integer = 0 To total - 1
                 Dim target = targets(i)
@@ -102,7 +104,10 @@ Namespace Services
                                                               ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
                                                               Return Nothing
                                                           End Function)
-                    familyTable = MergeTable(familyTable, famPack.Detail)
+                    If famPack IsNot Nothing Then
+                        familyLookup = MergeFamilyLookup(familyLookup, famPack.DetailByFamily)
+                        familyIndex = MergeFamilyIndex(familyIndex, famPack.Index)
+                    End If
                 End If
 
                 ReportProgress(progress, total, captureIndex + 1, 1.0R, $"완료: {captureIndex + 1}/{total} {captureName}")
@@ -127,21 +132,26 @@ Namespace Services
             Dim res As New RunResult() With {
                 .IncludeFamily = includeFamily,
                 .Project = If(projectTable, Auditors.MakeProjectTable()),
-                .Family = If(includeFamily, familyTable, Nothing)
+                .FamilyIndex = If(includeFamily, familyIndex, Nothing),
+                .FamilyLookup = If(includeFamily, familyLookup, Nothing)
             }
             Return res
         End Function
 
         ''' <summary>엑셀 내보내기 (단일 워크북 2시트)</summary>
         Public Shared Function Export(projectTable As DataTable,
-                                      familyTable As DataTable,
+                                      familyLookup As Dictionary(Of String, DataTable),
                                       includeFamily As Boolean,
                                       Optional excelMode As String = "fast",
                                       Optional progressChannel As String = Nothing) As String
             If projectTable Is Nothing OrElse projectTable.Rows.Count = 0 Then Return String.Empty
 
             Dim totalRows As Integer = projectTable.Rows.Count
-            If includeFamily AndAlso familyTable IsNot Nothing Then totalRows += familyTable.Rows.Count
+            If includeFamily AndAlso familyLookup IsNot Nothing Then
+                For Each kv In familyLookup
+                    If kv.Value IsNot Nothing Then totalRows += kv.Value.Rows.Count
+                Next
+            End If
 
             Dim doAutoFit As Boolean = False
             Try
@@ -154,8 +164,15 @@ Namespace Services
 
             Dim tables As New List(Of Tuple(Of String, DataTable))()
             tables.Add(Tuple.Create("RVT 검토결과", CloneWithoutColumn(projectTable, "RvtPath")))
-            If includeFamily AndAlso familyTable IsNot Nothing AndAlso familyTable.Rows.Count > 0 Then
-                tables.Add(Tuple.Create("Family(RFA) Parameter", CloneWithoutColumn(familyTable, "RvtPath")))
+            If includeFamily AndAlso familyLookup IsNot Nothing Then
+                Dim famTable As DataTable = Nothing
+                For Each kv In familyLookup
+                    If kv.Value Is Nothing Then Continue For
+                    famTable = MergeTable(famTable, kv.Value)
+                Next
+                If famTable IsNot Nothing AndAlso famTable.Rows.Count > 0 Then
+                    tables.Add(Tuple.Create("Family(RFA) Parameter", CloneWithoutColumn(famTable, "RvtPath")))
+                End If
             End If
 
             Dim defaultFileName As String = $"GUID_Audit_{DateTime.Now:yyyyMMdd_HHmm}.xlsx"
@@ -235,6 +252,32 @@ Namespace Services
             If master Is Nothing Then master = part.Clone()
             For Each r As DataRow In part.Rows
                 master.ImportRow(r)
+            Next
+            Return master
+        End Function
+
+        Private Shared Function MergeFamilyLookup(master As Dictionary(Of String, DataTable),
+                                                  incoming As Dictionary(Of String, DataTable)) As Dictionary(Of String, DataTable)
+            If incoming Is Nothing OrElse incoming.Count = 0 Then Return master
+            If master Is Nothing Then master = New Dictionary(Of String, DataTable)(StringComparer.OrdinalIgnoreCase)
+            For Each kv In incoming
+                Dim table = kv.Value
+                If table Is Nothing OrElse table.Rows.Count = 0 Then Continue For
+                If master.ContainsKey(kv.Key) Then
+                    master(kv.Key) = MergeTable(master(kv.Key), table)
+                Else
+                    master(kv.Key) = table
+                End If
+            Next
+            Return master
+        End Function
+
+        Private Shared Function MergeFamilyIndex(master As List(Of GuidFamilyIndexItem),
+                                                 incoming As List(Of GuidFamilyIndexItem)) As List(Of GuidFamilyIndexItem)
+            If incoming Is Nothing OrElse incoming.Count = 0 Then Return master
+            If master Is Nothing Then master = New List(Of GuidFamilyIndexItem)()
+            For Each item In incoming
+                master.Add(item)
             Next
             Return master
         End Function
@@ -494,7 +537,15 @@ Namespace Services
 
         Private NotInheritable Class FamilyAuditPack
             Public Property Summary As DataTable
-            Public Property Detail As DataTable
+            Public Property DetailByFamily As Dictionary(Of String, DataTable)
+            Public Property Index As List(Of GuidFamilyIndexItem)
+        End Class
+
+        Public Class GuidFamilyIndexItem
+            Public Property RvtName As String
+            Public Property RvtPath As String
+            Public Property FamilyName As String
+            Public Property FamilyCategory As String
         End Class
 
         Private NotInheritable Class Auditors
@@ -506,6 +557,21 @@ Namespace Services
                 dt.Columns.Add("ParamName", GetType(String))
                 dt.Columns.Add("ParamKind", GetType(String))
                 dt.Columns.Add("RvtGuid", GetType(String))
+                dt.Columns.Add("FileGuid", GetType(String))
+                dt.Columns.Add("Result", GetType(String))
+                dt.Columns.Add("Notes", GetType(String))
+                Return dt
+            End Function
+
+            Public Shared Function BuildFamilyTable() As DataTable
+                Dim dt As New DataTable("FamilyParamDetail")
+                dt.Columns.Add("RvtName", GetType(String))
+                dt.Columns.Add("RvtPath", GetType(String))
+                dt.Columns.Add("FamilyName", GetType(String))
+                dt.Columns.Add("FamilyCategory", GetType(String))
+                dt.Columns.Add("ParamName", GetType(String))
+                dt.Columns.Add("IsShared", GetType(String))
+                dt.Columns.Add("FamilyGuid", GetType(String))
                 dt.Columns.Add("FileGuid", GetType(String))
                 dt.Columns.Add("Result", GetType(String))
                 dt.Columns.Add("Notes", GetType(String))
@@ -628,18 +694,10 @@ Namespace Services
                                                   Optional progress As Action(Of Integer, Integer, String) = Nothing) As FamilyAuditPack
 
                 Dim pack As New FamilyAuditPack()
+                Dim detailLookup As New Dictionary(Of String, DataTable)(StringComparer.OrdinalIgnoreCase)
+                Dim index As New List(Of GuidFamilyIndexItem)()
 
-                Dim dtDet As New DataTable("FamilyParamDetail")
-                dtDet.Columns.Add("RvtName", GetType(String))
-                dtDet.Columns.Add("RvtPath", GetType(String))
-                dtDet.Columns.Add("FamilyName", GetType(String))
-                dtDet.Columns.Add("FamilyCategory", GetType(String))
-                dtDet.Columns.Add("ParamName", GetType(String))
-                dtDet.Columns.Add("IsShared", GetType(String))
-                dtDet.Columns.Add("FamilyGuid", GetType(String))
-                dtDet.Columns.Add("FileGuid", GetType(String))
-                dtDet.Columns.Add("Result", GetType(String))
-                dtDet.Columns.Add("Notes", GetType(String))
+                Dim baseTable As DataTable = Auditors.BuildFamilyTable()
 
                 Dim fams = New FilteredElementCollector(doc).
                     OfClass(GetType(Family)).
@@ -691,6 +749,19 @@ Namespace Services
                             Continue For
                         End If
 
+                        Dim famKey As String = BuildFamilyKey(rvtPath, famName)
+                        Dim famTable As DataTable = Nothing
+                        If Not detailLookup.TryGetValue(famKey, famTable) Then
+                            famTable = baseTable.Clone()
+                            detailLookup(famKey) = famTable
+                        End If
+                        index.Add(New GuidFamilyIndexItem() With {
+                            .RvtPath = rvtPath,
+                            .RvtName = rvtName,
+                            .FamilyName = famName,
+                            .FamilyCategory = famCat
+                        })
+
                         For Each fp As FamilyParameter In fm.Parameters
                             If fp Is Nothing Then Continue For
 
@@ -731,7 +802,7 @@ Namespace Services
                                 res = "FAMILY_PARAM"
                             End If
 
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, pName,
+                            AddDetailRow(famTable, rvtName, rvtPath, famName, famCat, pName,
                                          If(isSharedBool, "Y", "N"),
                                          famGuid, fileGuid, res, notes)
                         Next
@@ -750,7 +821,8 @@ Namespace Services
                 Next
 
                 pack.Summary = Nothing
-                pack.Detail = dtDet
+                pack.DetailByFamily = detailLookup
+                pack.Index = index
                 Return pack
             End Function
 
@@ -778,6 +850,15 @@ Namespace Services
                 r("Notes") = If(notes, "")
                 dt.Rows.Add(r)
             End Sub
+
+            Public Shared Function BuildFamilyIndexItem(rvtName As String, rvtPath As String, famName As String, famCat As String) As GuidFamilyIndexItem
+                Return New GuidFamilyIndexItem() With {
+                    .RvtName = If(rvtName, ""),
+                    .RvtPath = If(rvtPath, ""),
+                    .FamilyName = If(famName, ""),
+                    .FamilyCategory = If(famCat, "")
+                }
+            End Function
 
             Private Shared Function SafeParamElementName(pe As ParameterElement) As String
                 Try
@@ -846,3 +927,8 @@ Namespace Services
     End Class
 
 End Namespace
+        Public Shared Function BuildFamilyKey(rvtPath As String, familyName As String) As String
+            Dim pathPart As String = If(rvtPath, "")
+            Dim famPart As String = If(familyName, "")
+            Return $"{pathPart}|{famPart}"
+        End Function

@@ -15,7 +15,8 @@ Namespace UI.Hub
     Partial Public Class UiBridgeExternalEvent
 
         Private _guidProject As DataTable = Nothing
-        Private _guidFamily As DataTable = Nothing
+        Private _guidFamilyIndex As List(Of GuidFamilyIndexItem) = Nothing
+        Private _guidFamilyLookup As Dictionary(Of String, DataTable) = Nothing
         Private _guidIncludeFamily As Boolean = False
 
         ' -----------------------------
@@ -76,7 +77,8 @@ Namespace UI.Hub
 
             Try
                 _guidProject = Nothing
-                _guidFamily = Nothing
+                _guidFamilyIndex = Nothing
+                _guidFamilyLookup = Nothing
                 _guidIncludeFamily = includeFamily
 
                 Dim res = GuidAuditService.Run(app, includeFamily, rvtPaths, AddressOf ReportGuidProgress,
@@ -86,22 +88,45 @@ Namespace UI.Hub
                                                    End If
                                                End Sub)
                 _guidProject = res.Project
-                _guidFamily = res.Family
+                _guidFamilyIndex = res.FamilyIndex
+                _guidFamilyLookup = res.FamilyLookup
                 _guidIncludeFamily = res.IncludeFamily
 
                 Dim payloadProject = ShapeTable(_guidProject, Nothing)
-                Dim payloadFamily As Object = Nothing
-                If _guidIncludeFamily AndAlso _guidFamily IsNot Nothing Then
-                    payloadFamily = ShapeTable(_guidFamily, Nothing)
+                Dim payloadFamilyIndex As Object = Nothing
+                If _guidIncludeFamily AndAlso _guidFamilyIndex IsNot Nothing Then
+                    payloadFamilyIndex = _guidFamilyIndex
                 End If
 
-                SendToWeb("guid:done", New With {
-                    .includeFamily = _guidIncludeFamily,
-                    .project = payloadProject,
-                    .family = payloadFamily
-                })
+                Try
+                    Dim donePayload = New With {
+                        .includeFamily = _guidIncludeFamily,
+                        .project = payloadProject,
+                        .familyIndex = payloadFamilyIndex
+                    }
+                    SendToWeb("guid:done", donePayload)
+                Catch ex As Exception
+                    Dim pjCount As Integer = If(_guidProject Is Nothing, 0, _guidProject.Rows.Count)
+                    Dim famCount As Integer = If(_guidFamilyLookup Is Nothing, 0, _guidFamilyLookup.Sum(Function(kv) If(kv.Value Is Nothing, 0, kv.Value.Rows.Count)))
+                    Dim detail = New With {
+                        .type = ex.GetType().Name,
+                        .message = ex.Message,
+                        .stack = ex.ToString(),
+                        .projectRowsCount = pjCount,
+                        .familyRowsCount = famCount
+                    }
+                    SendToWeb("guid:error", detail)
+                End Try
             Catch ex As Exception
-                SendToWeb("guid:error", New With {.message = ex.Message})
+                Dim pjCount As Integer = If(_guidProject Is Nothing, 0, _guidProject.Rows.Count)
+                Dim famCount As Integer = If(_guidFamilyLookup Is Nothing, 0, _guidFamilyLookup.Sum(Function(kv) If(kv.Value Is Nothing, 0, kv.Value.Rows.Count)))
+                SendToWeb("guid:error", New With {
+                    .type = ex.GetType().Name,
+                    .message = ex.Message,
+                    .stack = ex.ToString(),
+                    .projectRowsCount = pjCount,
+                    .familyRowsCount = famCount
+                })
             Finally
                 ReportGuidProgress(0, String.Empty)
             End Try
@@ -123,7 +148,7 @@ Namespace UI.Hub
             Try
                 Dim requestedAutoFit As Boolean = String.Equals(excelMode, "normal", StringComparison.OrdinalIgnoreCase)
                 LogAutoFitDecision(requestedAutoFit, "GuidAuditExport")
-                Dim saved = GuidAuditService.Export(_guidProject, _guidFamily, _guidIncludeFamily, excelMode, "guid:progress")
+                Dim saved = GuidAuditService.Export(_guidProject, _guidFamilyLookup, _guidIncludeFamily, excelMode, "guid:progress")
                 If String.IsNullOrWhiteSpace(saved) Then
                     SendToWeb("guid:error", New With {.message = "엑셀 내보내기가 취소되었습니다."})
                     Return
@@ -139,6 +164,46 @@ Namespace UI.Hub
         ' -----------------------------
         Private Sub ReportGuidProgress(pct As Integer, text As String)
             SendToWeb("guid:progress", New With {.pct = pct, .text = text})
+        End Sub
+
+        ' guid:family-detail 응답 전송
+        Private Sub HandleGuidRequestFamilyDetail(app As UIApplication, payload As Object)
+            Dim rvtPath As String = ""
+            Dim famName As String = ""
+            Try
+                rvtPath = Convert.ToString(GetProp(payload, "rvtPath"))
+            Catch
+                rvtPath = ""
+            End Try
+            Try
+                famName = Convert.ToString(GetProp(payload, "familyName"))
+            Catch
+                famName = ""
+            End Try
+
+            If String.IsNullOrWhiteSpace(famName) Then
+                SendToWeb("guid:error", New With {.message = "familyName이 비어 있습니다."})
+                Return
+            End If
+
+            Dim key As String = GuidAuditService.BuildFamilyKey(rvtPath, famName)
+            Dim dt As DataTable = Nothing
+            If _guidFamilyLookup IsNot Nothing AndAlso _guidFamilyLookup.TryGetValue(key, dt) Then
+                Dim shaped = ShapeTable(dt, New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {"RvtPath"})
+                SendToWeb("guid:family-detail", New With {
+                    .rvtPath = rvtPath,
+                    .familyName = famName,
+                    .columns = shaped.columns,
+                    .rows = shaped.rows
+                })
+            Else
+                SendToWeb("guid:family-detail", New With {
+                    .rvtPath = rvtPath,
+                    .familyName = famName,
+                    .columns = New List(Of String)(),
+                    .rows = New List(Of Object())()
+                })
+            End If
         End Sub
 
         Private Function ShapeTable(dt As DataTable, skipCols As HashSet(Of String)) As Object

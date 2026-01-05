@@ -20,6 +20,7 @@ export function renderGuid(root) {
         rvtList: initialRvtList,
         rvtChecked: new Set(initialRvtList),
         project: { columns: [], rows: [] },
+        familyIndex: [],
         family: { columns: [], rows: [] },
         activeTab: 'project',
         activeProjectKey: '',
@@ -164,16 +165,14 @@ export function renderGuid(root) {
         setBusy(false);
         lastExcelPct = 0;
         const proj = payload?.project || {};
-        const fam = payload?.family || {};
+        const famIndex = Array.isArray(payload?.familyIndex) ? payload.familyIndex : [];
         state.includeFamily = !!payload?.includeFamily;
         state.project = {
             columns: Array.isArray(proj.columns) ? proj.columns : [],
             rows: Array.isArray(proj.rows) ? proj.rows : []
         };
-        state.family = state.includeFamily && Array.isArray(fam.rows) ? {
-            columns: Array.isArray(fam.columns) ? fam.columns : [],
-            rows: fam.rows
-        } : { columns: [], rows: [] };
+        state.familyIndex = famIndex;
+        state.family = { columns: [], rows: [] };
         state.activeTab = 'project';
         state.activeProjectKey = '';
         state.activeFamilyDoc = '';
@@ -201,6 +200,16 @@ export function renderGuid(root) {
         } else {
             toast('엑셀 내보내기 완료', 'ok');
         }
+    });
+
+    onHost('guid:family-detail', (payload) => {
+        ProgressDialog.hide();
+        setBusy(false);
+        lastExcelPct = 0;
+        const cols = Array.isArray(payload?.columns) ? payload.columns : [];
+        const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+        state.family = { columns: cols, rows: rows };
+        paintFamily();
     });
 
     const handleError = ({ message }) => {
@@ -349,6 +358,18 @@ export function renderGuid(root) {
         paintVirtualRows(familyBody, state.family.columns, filteredFamilyRows(), HIDDEN_FAMILY_COLS);
         buildFamilyNav();
         if (typeof familyFilterBox.sync === 'function') familyFilterBox.sync();
+        if (!state.family.rows.length && state.includeFamily) {
+            const empty = document.createElement('div');
+            empty.className = 'guid-nav-empty';
+            empty.textContent = '패밀리를 선택하세요.';
+            familyBody.innerHTML = '';
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = Math.max(1, state.family.columns.filter(c => !HIDDEN_FAMILY_COLS.has(c)).length || 1);
+            td.append(empty);
+            tr.append(td);
+            familyBody.append(tr);
+        }
     }
 
     function buildProjectNav() {
@@ -391,24 +412,21 @@ export function renderGuid(root) {
             familyNav.append(empty);
             return;
         }
-        if (!state.family.rows.length) {
+        if (!state.familyIndex.length) {
             const empty = document.createElement('li');
             empty.className = 'guid-nav-empty';
             empty.textContent = '패밀리 결과가 없습니다.';
             familyNav.append(empty);
             return;
         }
-        const idxPath = colIndex(state.family.columns, 'RvtPath');
-        const idxName = colIndex(state.family.columns, 'RvtName');
-        const idxFam = colIndex(state.family.columns, 'FamilyName');
         const map = new Map();
-        state.family.rows.forEach(row => {
-            const path = safe(row[idxPath]);
-            const docName = safe(row[idxName]) || path || '(Doc)';
-            const fam = safe(row[idxFam]);
+        state.familyIndex.forEach(item => {
+            const path = safe(item.RvtPath);
+            const docName = safe(item.RvtName) || path || '(Doc)';
+            const fam = safe(item.FamilyName);
             const key = path || docName;
             if (!map.has(key)) map.set(key, { name: docName, families: new Set(), path: path || '' });
-            if (fam) map.get(key).families.add(fam);
+            if (fam) map.get(key).families.add({ name: fam, cat: item.FamilyCategory });
         });
         Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
             const docItem = document.createElement('li');
@@ -424,12 +442,12 @@ export function renderGuid(root) {
             const famList = document.createElement('ul');
             famList.className = 'guid-nav-fams';
 
-            Array.from(info.families).sort((a, b) => a.localeCompare(b)).forEach(f => {
+            Array.from(info.families).sort((a, b) => a.name.localeCompare(b.name)).forEach(f => {
                 const li = document.createElement('li');
-                const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f;
-                btn.title = f;
-                btn.onclick = () => { state.activeFamilyDoc = key; state.activeFamily = f; paintFamily(); };
-                if (state.activeFamilyDoc === key && state.activeFamily === f) btn.classList.add('is-active');
+                const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f.name;
+                btn.title = f.name;
+                btn.onclick = () => { state.activeFamilyDoc = key; state.activeFamily = f.name; requestFamilyDetail(key, f.name); };
+                if (state.activeFamilyDoc === key && state.activeFamily === f.name) btn.classList.add('is-active');
                 li.append(btn);
                 famList.append(li);
             });
@@ -454,21 +472,11 @@ export function renderGuid(root) {
 
     function filteredFamilyRows() {
         if (!state.family.rows.length) return [];
-        const idxPath = colIndex(state.family.columns, 'RvtPath');
-        const idxName = colIndex(state.family.columns, 'RvtName');
-        const idxFam = colIndex(state.family.columns, 'FamilyName');
         const idxShared = colIndex(state.family.columns, 'IsShared');
-        const docKey = state.activeFamilyDoc;
-        const famKey = state.activeFamily;
         return state.family.rows.filter(row => {
-            const path = safe(row[idxPath]);
-            const docName = safe(row[idxName]);
-            const fam = safe(row[idxFam]);
             const isShared = safe(row[idxShared]).toUpperCase() === 'Y';
-            const docMatch = !docKey || (!!path && path === docKey) || (!path && docName === docKey);
-            const famMatch = !famKey || fam === famKey;
             const filterMatch = state.familyFilter === FAMILY_FILTER.all || (state.familyFilter === FAMILY_FILTER.shared && isShared) || (state.familyFilter === FAMILY_FILTER.family && !isShared);
-            return docMatch && famMatch && filterMatch;
+            return filterMatch;
         });
     }
 
@@ -486,6 +494,14 @@ export function renderGuid(root) {
             tr.append(th);
         });
         thead.append(tr);
+    }
+
+    function requestFamilyDetail(rvtPath, familyName) {
+        if (!state.includeFamily || !familyName) return;
+        state.family = { columns: [], rows: [] };
+        paintFamily();
+        ProgressDialog.show('GUID Audit', '패밀리 데이터를 불러오는 중…');
+        post('guid:request-family-detail', { rvtPath, familyName });
     }
 
     function paintVirtualRows(tbody, columns, rows, hidden) {
