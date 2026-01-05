@@ -48,6 +48,7 @@ Namespace Services
         ''' </summary>
         Public Shared Function Run(app As UIApplication,
                                    includeFamily As Boolean,
+                                   includeAnnotation As Boolean,
                                    rvtPaths As IEnumerable(Of String),
                                    progress As Action(Of Integer, String),
                                    Optional warn As Action(Of String) = Nothing) As RunResult
@@ -109,7 +110,7 @@ Namespace Services
                 projectTable = MergeTable(projectTable, proj)
 
                 If includeFamily Then
-                    Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path,
+                    Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path, includeAnnotation,
                                                           Function(cur, tot, famName) As Object
                                                               Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
                                                               ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
@@ -858,6 +859,7 @@ Namespace Services
 
             Public Shared Function RunFamilyAudit(doc As Document,
                                                   fileMap As Dictionary(Of String, List(Of Guid)),
+                                                  includeAnnotation As Boolean,
                                                   rvtName As String,
                                                   rvtPath As String,
                                                   Optional progress As Action(Of Integer, Integer, String) = Nothing) As FamilyAuditPack
@@ -901,6 +903,23 @@ Namespace Services
                             isInPlace = False
                         End Try
                         If isInPlace Then Continue For
+                        Try
+                            Dim editableProp = fam.GetType().GetProperty("IsEditable", BindingFlags.Public Or BindingFlags.Instance)
+                            If editableProp IsNot Nothing Then
+                                Dim editableVal = editableProp.GetValue(fam, Nothing)
+                                If TypeOf editableVal Is Boolean AndAlso Not DirectCast(editableVal, Boolean) Then
+                                    Continue For
+                                End If
+                            End If
+                        Catch
+                        End Try
+
+                        Try
+                            If fam.FamilyCategory IsNot Nothing AndAlso fam.FamilyCategory.CategoryType = CategoryType.Annotation AndAlso Not includeAnnotation Then
+                                Continue For
+                            End If
+                        Catch
+                        End Try
 
                         Try
                             famDoc = doc.EditFamily(fam)

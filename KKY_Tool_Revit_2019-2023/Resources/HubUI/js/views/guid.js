@@ -17,6 +17,7 @@ export function renderGuid(root) {
     const initialRvtList = loadRvtList();
     const state = {
         includeFamily: false,
+        includeAnnotation: false,
         runId: '',
         rvtList: initialRvtList,
         rvtChecked: new Set(initialRvtList),
@@ -169,6 +170,7 @@ export function renderGuid(root) {
         const famIndex = Array.isArray(payload?.familyIndex) ? payload.familyIndex : [];
         state.runId = payload?.runId || '';
         state.includeFamily = !!payload?.includeFamily;
+        state.includeAnnotation = false;
         state.project = {
             columns: Array.isArray(proj.columns) ? proj.columns : [],
             rows: Array.isArray(proj.rows) ? proj.rows : []
@@ -241,6 +243,7 @@ export function renderGuid(root) {
         const base = document.createElement('div');
         base.className = 'guid-mode-base';
         base.innerHTML = `<div class="mode-title">Project(RVT) Parameter</div><div class="mode-sub">기본(항상 실행)</div>`;
+
         const famWrap = document.createElement('label');
         famWrap.className = 'guid-mode-option';
         const ck = document.createElement('input'); ck.type = 'checkbox';
@@ -248,8 +251,22 @@ export function renderGuid(root) {
         ck.onchange = () => { state.includeFamily = !!ck.checked; syncTabState(); };
         const text = document.createElement('span'); text.textContent = 'Family(RFA) Parameter 추가 검토';
         famWrap.append(ck, text);
-        wrap.append(base, famWrap);
-        wrap.sync = () => { ck.checked = !!state.includeFamily; };
+
+        const annWrap = document.createElement('label');
+        annWrap.className = 'guid-mode-option';
+        const ckAnn = document.createElement('input'); ckAnn.type = 'checkbox';
+        ckAnn.checked = state.includeAnnotation;
+        ckAnn.onchange = () => { state.includeAnnotation = !!ckAnn.checked; };
+        const textAnn = document.createElement('span'); textAnn.textContent = 'Annotation 포함';
+        annWrap.append(ckAnn, textAnn);
+
+        wrap.append(base, famWrap, annWrap);
+        wrap.sync = () => {
+            ck.checked = !!state.includeFamily;
+            ckAnn.checked = !!state.includeAnnotation;
+            ckAnn.disabled = !state.includeFamily;
+            annWrap.classList.toggle('is-disabled', ckAnn.disabled);
+        };
         return wrap;
     }
 
@@ -291,6 +308,7 @@ export function renderGuid(root) {
         const payload = {
             mode: includeFamily ? 2 : 1,
             includeFamily,
+            includeAnnotation: !!state.includeAnnotation,
             rvtPaths: state.rvtList.length === 0 ? [] : targets
         };
         persistRvts();

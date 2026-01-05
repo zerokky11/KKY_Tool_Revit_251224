@@ -50,6 +50,11 @@
   cursor: pointer;
 }
 
+.guid-mode-option.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .guid-mode-option input[type="checkbox"] {
   accent-color: var(--accent);
 }

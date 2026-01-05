@@ -60,6 +60,7 @@ Namespace UI.Hub
             Dim mode As Integer = SafeIntObj(GetProp(pd, "mode"), 1)
             If mode <> 1 AndAlso mode <> 2 Then mode = 1
             Dim includeFamily As Boolean = False
+            Dim includeAnnotation As Boolean = False
             Try
                 Dim rawInclude = GetProp(pd, "includeFamily")
                 If rawInclude IsNot Nothing Then
@@ -76,6 +77,15 @@ Namespace UI.Hub
             End Try
             If Not includeFamily AndAlso mode = 2 Then includeFamily = True
             Dim rvtPaths = ParseStringList(pd, "rvtPaths")
+            Try
+                Dim rawAnn = GetProp(pd, "includeAnnotation")
+                If rawAnn IsNot Nothing Then
+                    Dim s = Convert.ToString(rawAnn).Trim().ToLowerInvariant()
+                    includeAnnotation = (s = "true" OrElse s = "1" OrElse s = "y" OrElse s = "yes")
+                End If
+            Catch
+                includeAnnotation = False
+            End Try
 
             Try
                 _guidProject = Nothing
@@ -84,7 +94,7 @@ Namespace UI.Hub
                 _guidIncludeFamily = includeFamily
                 _guidRunId = String.Empty
 
-                Dim res = GuidAuditService.Run(app, includeFamily, rvtPaths, AddressOf ReportGuidProgress,
+                Dim res = GuidAuditService.Run(app, includeFamily, includeAnnotation, rvtPaths, AddressOf ReportGuidProgress,
                                                Sub(msg As String)
                                                    If Not String.IsNullOrWhiteSpace(msg) Then
                                                        SendToWeb("guid:warn", New With {.message = msg})
