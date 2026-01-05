@@ -14,9 +14,9 @@ Namespace UI.Hub
 
     Partial Public Class UiBridgeExternalEvent
 
-        Private _guidSummary As DataTable = Nothing
-        Private _guidDetail As DataTable = Nothing
-        Private _guidMode As Integer = 1
+        Private _guidProject As DataTable = Nothing
+        Private _guidFamily As DataTable = Nothing
+        Private _guidIncludeFamily As Boolean = False
 
         ' -----------------------------
         ' 핸들러
@@ -56,32 +56,49 @@ Namespace UI.Hub
             Dim pd = ParsePayloadDict(payload)
             Dim mode As Integer = SafeIntObj(GetProp(pd, "mode"), 1)
             If mode <> 1 AndAlso mode <> 2 Then mode = 1
+            Dim includeFamily As Boolean = False
+            Try
+                Dim rawInclude = GetProp(pd, "includeFamily")
+                If rawInclude IsNot Nothing Then
+                    Dim s = Convert.ToString(rawInclude)
+                    If Not String.IsNullOrWhiteSpace(s) Then
+                        Dim lowered = s.Trim().ToLowerInvariant()
+                        includeFamily = (lowered = "true" OrElse lowered = "1" OrElse lowered = "y" OrElse lowered = "yes")
+                    Else
+                        includeFamily = False
+                    End If
+                End If
+            Catch
+                includeFamily = False
+            End Try
+            If Not includeFamily AndAlso mode = 2 Then includeFamily = True
             Dim rvtPaths = ParseStringList(pd, "rvtPaths")
 
             Try
-                _guidSummary = Nothing
-                _guidDetail = Nothing
-                _guidMode = mode
+                _guidProject = Nothing
+                _guidFamily = Nothing
+                _guidIncludeFamily = includeFamily
 
-                Dim res = GuidAuditService.Run(app, mode, rvtPaths, AddressOf ReportGuidProgress,
+                Dim res = GuidAuditService.Run(app, includeFamily, rvtPaths, AddressOf ReportGuidProgress,
                                                Sub(msg As String)
                                                    If Not String.IsNullOrWhiteSpace(msg) Then
                                                        SendToWeb("guid:warn", New With {.message = msg})
                                                    End If
                                                End Sub)
-                _guidSummary = res.Summary
-                _guidDetail = res.Detail
+                _guidProject = res.Project
+                _guidFamily = res.Family
+                _guidIncludeFamily = res.IncludeFamily
 
-                Dim payloadSummary = ShapeTable(res.Summary, Nothing)
-                Dim payloadDetail As Object = Nothing
-                If mode = 2 AndAlso res.Detail IsNot Nothing Then
-                    payloadDetail = ShapeTable(res.Detail, Nothing)
+                Dim payloadProject = ShapeTable(_guidProject, Nothing)
+                Dim payloadFamily As Object = Nothing
+                If _guidIncludeFamily AndAlso _guidFamily IsNot Nothing Then
+                    payloadFamily = ShapeTable(_guidFamily, Nothing)
                 End If
 
                 SendToWeb("guid:done", New With {
-                    .mode = mode,
-                    .summary = payloadSummary,
-                    .detail = payloadDetail
+                    .includeFamily = _guidIncludeFamily,
+                    .project = payloadProject,
+                    .family = payloadFamily
                 })
             Catch ex As Exception
                 SendToWeb("guid:error", New With {.message = ex.Message})
@@ -91,13 +108,6 @@ Namespace UI.Hub
         End Sub
 
         Private Sub HandleGuidExport(app As UIApplication, payload As Object)
-            Dim which As String = ""
-            Try
-                which = Convert.ToString(GetProp(payload, "which"))
-            Catch
-                which = ""
-            End Try
-            which = If(which, "").ToLowerInvariant()
             Dim excelMode As String = "fast"
             Try
                 Dim em = Convert.ToString(GetProp(payload, "excelMode"))
@@ -105,36 +115,20 @@ Namespace UI.Hub
             Catch
             End Try
 
-            Dim target As DataTable = Nothing
-            Dim sheet As String = "Result"
-
-            If which = "detail" Then
-                If _guidMode <> 2 OrElse _guidDetail Is Nothing OrElse _guidDetail.Rows.Count = 0 Then
-                    SendToWeb("guid:error", New With {.message = "저장할 상세 결과가 없습니다."})
-                    Return
-                End If
-
-                ' Excel에는 RvtPath 제외
-                target = CloneWithoutColumn(_guidDetail, "RvtPath")
-                sheet = "FamilyParamDetail"
-            Else
-                If _guidSummary Is Nothing OrElse _guidSummary.Rows.Count = 0 Then
-                    SendToWeb("guid:error", New With {.message = "저장할 결과가 없습니다."})
-                    Return
-                End If
-                target = _guidSummary
-                sheet = If(_guidMode = 1, "ProjectParams", "FamilySharedParams")
+            If _guidProject Is Nothing OrElse _guidProject.Rows.Count = 0 Then
+                SendToWeb("guid:error", New With {.message = "저장할 결과가 없습니다."})
+                Return
             End If
 
             Try
                 Dim requestedAutoFit As Boolean = String.Equals(excelMode, "normal", StringComparison.OrdinalIgnoreCase)
                 LogAutoFitDecision(requestedAutoFit, "GuidAuditExport")
-                Dim saved = GuidAuditService.Export(target, sheet, excelMode, "guid:progress")
+                Dim saved = GuidAuditService.Export(_guidProject, _guidFamily, _guidIncludeFamily, excelMode, "guid:progress")
                 If String.IsNullOrWhiteSpace(saved) Then
                     SendToWeb("guid:error", New With {.message = "엑셀 내보내기가 취소되었습니다."})
                     Return
                 End If
-                SendToWeb("guid:exported", New With {.path = saved, .which = which})
+                SendToWeb("guid:exported", New With {.path = saved})
             Catch ex As Exception
                 SendToWeb("guid:error", New With {.message = "엑셀 내보내기 실패: " & ex.Message})
             End Try
@@ -166,20 +160,6 @@ Namespace UI.Hub
             Next
 
             Return New With {.columns = cols, .rows = rows}
-        End Function
-
-        Private Function CloneWithoutColumn(dt As DataTable, columnName As String) As DataTable
-            If dt Is Nothing Then Return Nothing
-            Dim clone As DataTable = dt.Clone()
-            If clone.Columns.Contains(columnName) Then clone.Columns.Remove(columnName)
-            For Each r As DataRow In dt.Rows
-                Dim nr = clone.NewRow()
-                For Each c As DataColumn In clone.Columns
-                    nr(c.ColumnName) = r(c.ColumnName)
-                Next
-                clone.Rows.Add(nr)
-            Next
-            Return clone
         End Function
 
         Private Shared Function SafeStrGuid(o As Object) As String

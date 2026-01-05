@@ -4,7 +4,9 @@ import { post, onHost } from '../core/bridge.js';
 
 const LS_RVTS = 'kky_guid_rvts';
 
-const HIDDEN_DETAIL_COLS = new Set(['RvtPath']);
+const HIDDEN_PROJECT_COLS = new Set(['RvtPath']);
+const HIDDEN_FAMILY_COLS = new Set(['RvtPath']);
+const FAMILY_FILTER = { all: 'all', shared: 'shared', family: 'family' };
 const EXCEL_PHASE_WEIGHT = { EXCEL_INIT: 0.05, EXCEL_WRITE: 0.85, EXCEL_SAVE: 0.08, AUTOFIT: 0.02, DONE: 1, ERROR: 1 };
 
 export function renderGuid(root) {
@@ -14,14 +16,16 @@ export function renderGuid(root) {
 
     const initialRvtList = loadRvtList();
     const state = {
-        mode: 1,
+        includeFamily: false,
         rvtList: initialRvtList,
         rvtChecked: new Set(initialRvtList),
-        summary: { columns: [], rows: [] },
-        detail: { columns: [], rows: [] },
-        activeTab: 'summary',
-        activeDocKey: '',
+        project: { columns: [], rows: [] },
+        family: { columns: [], rows: [] },
+        activeTab: 'project',
+        activeProjectKey: '',
+        activeFamilyDoc: '',
         activeFamily: '',
+        familyFilter: FAMILY_FILTER.all,
         busy: false
     };
     let lastExcelPct = 0;
@@ -36,13 +40,13 @@ export function renderGuid(root) {
       <h2 class="feature-title">공유 파라미터 GUID 검토</h2>
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
-    const modeToggle = buildModeToggle();
+    const modeOption = buildModeOption();
     const runBtn = cardBtn('검토 시작', onRun);
     const exportBtn = cardBtn('엑셀 내보내기', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
     const rightActions = div('guid-header-actions');
-    rightActions.append(modeToggle, runBtn, exportBtn);
+    rightActions.append(modeOption, runBtn, exportBtn);
     actions.append(rightActions);
     header.append(heading, actions);
     page.append(header);
@@ -77,39 +81,50 @@ export function renderGuid(root) {
     const tabs = div('feature-results-panel guid-results feature-tabs');
     const tabHead = div('feature-results-head');
     const tabBtns = div('pill-tabs');
-    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'pill-tab is-active'; btnTabSummary.innerHTML = `<span class="pill-label">요약</span><span class="pill-count">0</span>`;
-    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'pill-tab'; btnTabDetail.innerHTML = `<span class="pill-label">패밀리/파라미터</span><span class="pill-count">0</span>`;
-    tabBtns.append(btnTabSummary, btnTabDetail);
+    const btnTabProject = document.createElement('button'); btnTabProject.type = 'button'; btnTabProject.className = 'pill-tab is-active'; btnTabProject.innerHTML = `<span class="pill-label">RVT 검토결과</span><span class="pill-count">0</span>`;
+    const btnTabFamily = document.createElement('button'); btnTabFamily.type = 'button'; btnTabFamily.className = 'pill-tab'; btnTabFamily.innerHTML = `<span class="pill-label">Family(RFA) Parameter</span><span class="pill-count">0</span>`;
+    tabBtns.append(btnTabProject, btnTabFamily);
     tabHead.append(tabBtns);
     tabs.append(tabHead);
 
     const tabPanels = div('guid-tab-panels');
-    const tabPanelSummary = div('guid-tab-panel');
-    const summaryTableWrap = div('guid-table-wrap');
-    const summaryTable = document.createElement('table'); summaryTable.className = 'guid-table';
-    const summaryHead = document.createElement('thead');
-    const summaryBody = document.createElement('tbody');
-    summaryTable.append(summaryHead, summaryBody);
-        summaryTableWrap.append(summaryTable);
-        tabPanelSummary.append(summaryTableWrap);
 
-    const tabPanelDetail = div('guid-tab-panel is-hidden');
-    const detailWrap = div('guid-detail-wrap');
-    const navPane = div('guid-detail-nav feature-results-panel');
-    const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
-    navPane.append(navList);
-    const detailPane = div('guid-detail-pane');
-    const detailTableWrap = div('guid-table-wrap');
-    const detailTable = document.createElement('table'); detailTable.className = 'guid-table';
-    const detailHead = document.createElement('thead');
-    const detailBody = document.createElement('tbody');
-    detailTable.append(detailHead, detailBody);
-    detailTableWrap.append(detailTable);
-    detailPane.append(detailTableWrap);
-    detailWrap.append(navPane, detailPane);
-    tabPanelDetail.append(detailWrap);
+    // Project tab
+    const tabPanelProject = div('guid-tab-panel');
+    const projectWrap = div('guid-detail-wrap');
+    const projectNavPane = div('guid-detail-nav feature-results-panel');
+    const projectNav = document.createElement('ul'); projectNav.className = 'guid-nav-list';
+    projectNavPane.append(projectNav);
+    const projectPane = div('guid-detail-pane');
+    const projectTableWrap = div('guid-table-wrap');
+    const projectTable = document.createElement('table'); projectTable.className = 'guid-table';
+    const projectHead = document.createElement('thead');
+    const projectBody = document.createElement('tbody');
+    projectTable.append(projectHead, projectBody);
+    projectTableWrap.append(projectTable);
+    projectPane.append(projectTableWrap);
+    projectWrap.append(projectNavPane, projectPane);
+    tabPanelProject.append(projectWrap);
 
-    tabPanels.append(tabPanelSummary, tabPanelDetail);
+    // Family tab
+    const tabPanelFamily = div('guid-tab-panel is-hidden');
+    const familyWrap = div('guid-detail-wrap');
+    const familyNavPane = div('guid-detail-nav feature-results-panel');
+    const familyNav = document.createElement('ul'); familyNav.className = 'guid-nav-list';
+    familyNavPane.append(familyNav);
+    const familyPane = div('guid-detail-pane');
+    const familyFilterBox = buildFamilyFilter();
+    const familyTableWrap = div('guid-table-wrap');
+    const familyTable = document.createElement('table'); familyTable.className = 'guid-table';
+    const familyHead = document.createElement('thead');
+    const familyBody = document.createElement('tbody');
+    familyTable.append(familyHead, familyBody);
+    familyTableWrap.append(familyTable);
+    familyPane.append(familyFilterBox, familyTableWrap);
+    familyWrap.append(familyNavPane, familyPane);
+    tabPanelFamily.append(familyWrap);
+
+    tabPanels.append(tabPanelProject, tabPanelFamily);
     tabs.append(tabPanels);
     body.append(tabs);
 
@@ -132,12 +147,7 @@ export function renderGuid(root) {
             state.rvtChecked.add(path);
         });
         state.rvtList = dedupPaths(state.rvtList);
-        if (added) {
-            persistRvts();
-            renderRvtList();
-        } else {
-            renderRvtList();
-        }
+        renderRvtList();
         syncRvtActionState();
     });
 
@@ -153,22 +163,27 @@ export function renderGuid(root) {
         ProgressDialog.hide();
         setBusy(false);
         lastExcelPct = 0;
-        const sum = payload?.summary || {};
-        const det = payload?.detail || {};
-        state.summary = {
-            columns: Array.isArray(sum.columns) ? sum.columns : [],
-            rows: Array.isArray(sum.rows) ? sum.rows : []
+        const proj = payload?.project || {};
+        const fam = payload?.family || {};
+        state.includeFamily = !!payload?.includeFamily;
+        state.project = {
+            columns: Array.isArray(proj.columns) ? proj.columns : [],
+            rows: Array.isArray(proj.rows) ? proj.rows : []
         };
-        state.detail = {
-            columns: Array.isArray(det.columns) ? det.columns : [],
-            rows: Array.isArray(det.rows) ? det.rows : []
-        };
-        state.activeDocKey = '';
+        state.family = state.includeFamily && Array.isArray(fam.rows) ? {
+            columns: Array.isArray(fam.columns) ? fam.columns : [],
+            rows: fam.rows
+        } : { columns: [], rows: [] };
+        state.activeTab = 'project';
+        state.activeProjectKey = '';
+        state.activeFamilyDoc = '';
         state.activeFamily = '';
+        state.familyFilter = FAMILY_FILTER.all;
+        if (typeof modeOption.sync === 'function') modeOption.sync();
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();
-        paintSummary();
-        paintDetail();
+        paintProject();
+        paintFamily();
         syncTabState();
         toast('검토 완료', 'ok');
     });
@@ -199,12 +214,54 @@ export function renderGuid(root) {
     onHost('host:error', handleError);
 
     // UI handlers
-    btnTabSummary.onclick = () => { state.activeTab = 'summary'; syncTabState(); };
-    btnTabDetail.onclick = () => {
-        if (state.mode !== 2) return;
-        state.activeTab = 'detail';
+    btnTabProject.onclick = () => { state.activeTab = 'project'; syncTabState(); };
+    btnTabFamily.onclick = () => {
+        if (state.busy) return;
+        state.activeTab = 'family';
         syncTabState();
     };
+
+    function buildModeOption() {
+        const wrap = div('guid-mode');
+        const base = document.createElement('div');
+        base.className = 'guid-mode-base';
+        base.innerHTML = `<div class="mode-title">Project(RVT) Parameter</div><div class="mode-sub">기본(항상 실행)</div>`;
+        const famWrap = document.createElement('label');
+        famWrap.className = 'guid-mode-option';
+        const ck = document.createElement('input'); ck.type = 'checkbox';
+        ck.checked = state.includeFamily;
+        ck.onchange = () => { state.includeFamily = !!ck.checked; syncTabState(); };
+        const text = document.createElement('span'); text.textContent = 'Family(RFA) Parameter 추가 검토';
+        famWrap.append(ck, text);
+        wrap.append(base, famWrap);
+        wrap.sync = () => { ck.checked = !!state.includeFamily; };
+        return wrap;
+    }
+
+    function buildFamilyFilter() {
+        const wrap = div('guid-family-filter');
+        const label = document.createElement('div'); label.className = 'guid-filter-label'; label.textContent = '표시 대상';
+        const btns = div('segmented');
+        const mk = (key, text) => {
+            const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.className = 'seg-btn';
+            b.onclick = () => { state.familyFilter = key; paintFamily(); };
+            return b;
+        };
+        const btnAll = mk(FAMILY_FILTER.all, '전체');
+        const btnShared = mk(FAMILY_FILTER.shared, 'Shared Parameter만');
+        const btnFamily = mk(FAMILY_FILTER.family, 'Family Parameter만');
+        btns.append(btnAll, btnShared, btnFamily);
+        wrap.append(label, btns);
+        const sync = () => {
+            [btnAll, btnShared, btnFamily].forEach(b => b.classList.remove('is-active'));
+            if (state.familyFilter === FAMILY_FILTER.shared) btnShared.classList.add('is-active');
+            else if (state.familyFilter === FAMILY_FILTER.family) btnFamily.classList.add('is-active');
+            else btnAll.classList.add('is-active');
+        };
+        wrap.sync = sync;
+        sync();
+        return wrap;
+    }
 
     function onRun() {
         if (state.busy) return;
@@ -215,14 +272,16 @@ export function renderGuid(root) {
             return;
         }
 
+        const includeFamily = !!state.includeFamily;
         const payload = {
-            mode: state.mode,
+            mode: includeFamily ? 2 : 1,
+            includeFamily,
             rvtPaths: state.rvtList.length === 0 ? [] : targets
         };
         persistRvts();
 
         setBusy(true);
-        if (state.mode !== 2) state.activeTab = 'summary';
+        state.activeTab = 'project';
         ProgressDialog.show('GUID Audit', '준비 중…');
         post('guid:run', payload);
     }
@@ -230,28 +289,13 @@ export function renderGuid(root) {
     function onExport() {
         if (state.busy) return;
         if (!hasRowsForExport()) { toast('저장할 결과가 없습니다.', 'warn'); return; }
-        const which = state.activeTab === 'detail' ? 'detail' : 'summary';
         chooseExcelMode((mode) => {
             const excelMode = mode || 'fast';
             lastExcelPct = 0;
             setBusy(true);
             ProgressDialog.show('엑셀 내보내기', '엑셀 파일을 만드는 중…');
-            post('guid:export', { which, excelMode });
+            post('guid:export', { excelMode });
         });
-    }
-
-    function buildModeToggle() {
-        const wrap = div('guid-mode');
-        const btnM1 = document.createElement('button'); btnM1.type = 'button'; btnM1.className = 'mode-btn is-active'; btnM1.textContent = 'Mode 1: 프로젝트 파라미터';
-        const btnM2 = document.createElement('button'); btnM2.type = 'button'; btnM2.className = 'mode-btn'; btnM2.textContent = 'Mode 2: 패밀리 공유 파라미터';
-        btnM1.onclick = () => { if (state.mode === 1) return; state.mode = 1; state.activeTab = 'summary'; syncModeButtons(); syncTabState(); };
-        btnM2.onclick = () => { if (state.mode === 2) return; state.mode = 2; syncModeButtons(); syncTabState(); };
-        wrap.append(btnM1, btnM2);
-        function syncModeButtons() {
-            btnM1.classList.toggle('is-active', state.mode === 1);
-            btnM2.classList.toggle('is-active', state.mode === 2);
-        }
-        return wrap;
     }
 
     function renderRvtList() {
@@ -294,36 +338,76 @@ export function renderGuid(root) {
         syncRvtActionState();
     }
 
-    function paintSummary() {
-        buildHead(summaryHead, state.summary.columns, new Set());
-        paintVirtualRows(summaryBody, state.summary.columns, state.summary.rows, new Set());
+    function paintProject() {
+        buildHead(projectHead, state.project.columns, HIDDEN_PROJECT_COLS);
+        paintVirtualRows(projectBody, state.project.columns, filteredProjectRows(), HIDDEN_PROJECT_COLS);
+        buildProjectNav();
     }
 
-    function paintDetail() {
-        buildHead(detailHead, state.detail.columns, HIDDEN_DETAIL_COLS);
-        paintVirtualRows(detailBody, state.detail.columns, filteredDetailRows(), HIDDEN_DETAIL_COLS);
-        buildNav();
+    function paintFamily() {
+        buildHead(familyHead, state.family.columns, HIDDEN_FAMILY_COLS);
+        paintVirtualRows(familyBody, state.family.columns, filteredFamilyRows(), HIDDEN_FAMILY_COLS);
+        buildFamilyNav();
+        if (typeof familyFilterBox.sync === 'function') familyFilterBox.sync();
     }
 
-    function buildNav() {
-        navList.innerHTML = '';
-        if (!state.detail.rows.length) {
+    function buildProjectNav() {
+        projectNav.innerHTML = '';
+        if (!state.project.rows.length) {
             const empty = document.createElement('li');
             empty.className = 'guid-nav-empty';
-            empty.textContent = '상세 결과가 없습니다.';
-            navList.append(empty);
+            empty.textContent = '결과가 없습니다.';
+            projectNav.append(empty);
             return;
         }
-        const idxPath = colIndex('RvtPath');
-        const idxName = colIndex('RvtName');
-        const idxFam = colIndex('FamilyName');
+        const idxPath = colIndex(state.project.columns, 'RvtPath');
+        const idxName = colIndex(state.project.columns, 'RvtName');
         const map = new Map();
-        state.detail.rows.forEach(row => {
-            const path = (row[idxPath] || '').toString();
-            const rname = (row[idxName] || path || '(Doc)').toString();
-            const fam = (row[idxFam] || '').toString();
-            const key = path || rname;
-            if (!map.has(key)) map.set(key, { name: rname, families: new Set() });
+        state.project.rows.forEach(row => {
+            const path = safe(row[idxPath]);
+            const name = safe(row[idxName]) || path || '(Doc)';
+            const key = path || name;
+            if (!map.has(key)) map.set(key, { name, path: path || '' });
+        });
+        Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
+            const li = document.createElement('li');
+            li.className = 'guid-nav-doc';
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-doc-title';
+            btn.textContent = info.name;
+            btn.title = info.path || info.name;
+            btn.onclick = () => { state.activeProjectKey = key; paintProject(); };
+            if (state.activeProjectKey === key) btn.classList.add('is-active');
+            li.append(btn);
+            projectNav.append(li);
+        });
+    }
+
+    function buildFamilyNav() {
+        familyNav.innerHTML = '';
+        if (!state.includeFamily) {
+            const empty = document.createElement('li');
+            empty.className = 'guid-nav-empty';
+            empty.textContent = 'Family(RFA) Parameter 추가 검토를 선택 후 실행하세요.';
+            familyNav.append(empty);
+            return;
+        }
+        if (!state.family.rows.length) {
+            const empty = document.createElement('li');
+            empty.className = 'guid-nav-empty';
+            empty.textContent = '패밀리 결과가 없습니다.';
+            familyNav.append(empty);
+            return;
+        }
+        const idxPath = colIndex(state.family.columns, 'RvtPath');
+        const idxName = colIndex(state.family.columns, 'RvtName');
+        const idxFam = colIndex(state.family.columns, 'FamilyName');
+        const map = new Map();
+        state.family.rows.forEach(row => {
+            const path = safe(row[idxPath]);
+            const docName = safe(row[idxName]) || path || '(Doc)';
+            const fam = safe(row[idxFam]);
+            const key = path || docName;
+            if (!map.has(key)) map.set(key, { name: docName, families: new Set(), path: path || '' });
             if (fam) map.get(key).families.add(fam);
         });
         Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
@@ -332,6 +416,9 @@ export function renderGuid(root) {
             const docTitle = document.createElement('div');
             docTitle.className = 'nav-doc-title';
             docTitle.textContent = info.name;
+            docTitle.title = info.path || info.name;
+            docTitle.onclick = () => { state.activeFamilyDoc = key; state.activeFamily = ''; paintFamily(); };
+            if (state.activeFamilyDoc === key && !state.activeFamily) docTitle.classList.add('is-active');
             docItem.append(docTitle);
 
             const famList = document.createElement('ul');
@@ -341,35 +428,52 @@ export function renderGuid(root) {
                 const li = document.createElement('li');
                 const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f;
                 btn.title = f;
-                btn.onclick = () => { state.activeDocKey = key; state.activeFamily = f; paintDetail(); };
-                if (state.activeDocKey === key && state.activeFamily === f) btn.classList.add('is-active');
+                btn.onclick = () => { state.activeFamilyDoc = key; state.activeFamily = f; paintFamily(); };
+                if (state.activeFamilyDoc === key && state.activeFamily === f) btn.classList.add('is-active');
                 li.append(btn);
                 famList.append(li);
             });
 
             docItem.append(famList);
-            navList.append(docItem);
+            familyNav.append(docItem);
         });
     }
 
-    function filteredDetailRows() {
-        if (!state.detail.rows.length) return [];
-        const idxPath = colIndex('RvtPath');
-        const idxFam = colIndex('FamilyName');
-        const key = state.activeDocKey;
-        const fam = state.activeFamily;
-        if (!key && !fam) return state.detail.rows;
-        return state.detail.rows.filter(row => {
-            const path = (row[idxPath] || '').toString();
-            const famName = (row[idxFam] || '').toString();
-            const docMatch = !key || ((path || '') === key);
-            const famMatch = !fam || (famName === fam);
-            return docMatch && famMatch;
+    function filteredProjectRows() {
+        if (!state.project.rows.length) return [];
+        const idxPath = colIndex(state.project.columns, 'RvtPath');
+        const idxName = colIndex(state.project.columns, 'RvtName');
+        const key = state.activeProjectKey;
+        if (!key) return state.project.rows;
+        return state.project.rows.filter(row => {
+            const path = safe(row[idxPath]);
+            const name = safe(row[idxName]);
+            return (!!path && path === key) || (!path && name === key) || (!path && !key && !name);
         });
     }
 
-    function colIndex(name) {
-        return state.detail.columns.findIndex(c => c === name);
+    function filteredFamilyRows() {
+        if (!state.family.rows.length) return [];
+        const idxPath = colIndex(state.family.columns, 'RvtPath');
+        const idxName = colIndex(state.family.columns, 'RvtName');
+        const idxFam = colIndex(state.family.columns, 'FamilyName');
+        const idxShared = colIndex(state.family.columns, 'IsShared');
+        const docKey = state.activeFamilyDoc;
+        const famKey = state.activeFamily;
+        return state.family.rows.filter(row => {
+            const path = safe(row[idxPath]);
+            const docName = safe(row[idxName]);
+            const fam = safe(row[idxFam]);
+            const isShared = safe(row[idxShared]).toUpperCase() === 'Y';
+            const docMatch = !docKey || (!!path && path === docKey) || (!path && docName === docKey);
+            const famMatch = !famKey || fam === famKey;
+            const filterMatch = state.familyFilter === FAMILY_FILTER.all || (state.familyFilter === FAMILY_FILTER.shared && isShared) || (state.familyFilter === FAMILY_FILTER.family && !isShared);
+            return docMatch && famMatch && filterMatch;
+        });
+    }
+
+    function colIndex(columns, name) {
+        return columns.findIndex(c => c === name);
     }
 
     function buildHead(thead, columns, hidden) {
@@ -407,22 +511,22 @@ export function renderGuid(root) {
     }
 
     function hasRowsForExport() {
-        if (state.activeTab === 'detail' && state.mode === 2) {
-            return (state.detail.rows || []).length > 0;
-        }
-        return (state.summary.rows || []).length > 0;
+        return (state.project.rows || []).length > 0;
     }
 
     function syncTabState() {
-        btnTabSummary.classList.toggle('is-active', state.activeTab === 'summary');
-        btnTabDetail.classList.toggle('is-active', state.activeTab === 'detail');
-        btnTabDetail.disabled = (state.mode !== 2);
-        tabPanelSummary.classList.toggle('is-hidden', state.activeTab !== 'summary');
-        tabPanelDetail.classList.toggle('is-hidden', state.activeTab !== 'detail' || state.mode !== 2);
-        if (state.activeTab === 'detail' && state.mode !== 2) {
-            state.activeTab = 'summary';
+        btnTabProject.classList.toggle('is-active', state.activeTab === 'project');
+        btnTabFamily.classList.toggle('is-active', state.activeTab === 'family');
+        btnTabFamily.disabled = !state.includeFamily;
+        btnTabFamily.classList.toggle('is-disabled', !state.includeFamily);
+        tabPanelProject.classList.toggle('is-hidden', state.activeTab !== 'project');
+        const disableFamilyView = state.activeTab === 'family' && !state.includeFamily;
+        tabPanelFamily.classList.toggle('is-hidden', state.activeTab !== 'family');
+        familyWrap.classList.toggle('is-disabled', disableFamilyView);
+        if (disableFamilyView) {
+            state.activeTab = 'project';
         }
-        exportBtn.disabled = !hasRowsForExport();
+        exportBtn.disabled = state.busy || !hasRowsForExport();
         updateTabCounts();
     }
 
@@ -529,8 +633,8 @@ export function renderGuid(root) {
     }
 
     function updateTabCounts() {
-        setTabCount(btnTabSummary, state.summary.rows.length || 0);
-        setTabCount(btnTabDetail, state.detail.rows.length || 0);
+        setTabCount(btnTabProject, state.project.rows.length || 0);
+        setTabCount(btnTabFamily, state.family.rows.length || 0);
     }
 }
 
