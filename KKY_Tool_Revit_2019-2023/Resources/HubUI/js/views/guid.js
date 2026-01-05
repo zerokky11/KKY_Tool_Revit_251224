@@ -17,6 +17,7 @@ export function renderGuid(root) {
     const initialRvtList = loadRvtList();
     const state = {
         includeFamily: false,
+        runId: '',
         rvtList: initialRvtList,
         rvtChecked: new Set(initialRvtList),
         project: { columns: [], rows: [] },
@@ -166,6 +167,7 @@ export function renderGuid(root) {
         lastExcelPct = 0;
         const proj = payload?.project || {};
         const famIndex = Array.isArray(payload?.familyIndex) ? payload.familyIndex : [];
+        state.runId = payload?.runId || '';
         state.includeFamily = !!payload?.includeFamily;
         state.project = {
             columns: Array.isArray(proj.columns) ? proj.columns : [],
@@ -206,6 +208,10 @@ export function renderGuid(root) {
         ProgressDialog.hide();
         setBusy(false);
         lastExcelPct = 0;
+        if (payload?.runId && state.runId && payload.runId !== state.runId) {
+            toast('이전 실행 결과입니다. 다시 실행하세요.', 'warn');
+            return;
+        }
         const cols = Array.isArray(payload?.columns) ? payload.columns : [];
         const rows = Array.isArray(payload?.rows) ? payload.rows : [];
         state.family = { columns: cols, rows: rows };
@@ -291,6 +297,7 @@ export function renderGuid(root) {
 
         setBusy(true);
         state.activeTab = 'project';
+        state.runId = '';
         ProgressDialog.show('GUID Audit', '준비 중…');
         post('guid:run', payload);
     }
@@ -446,7 +453,7 @@ export function renderGuid(root) {
                 const li = document.createElement('li');
                 const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f.name;
                 btn.title = f.name;
-                btn.onclick = () => { state.activeFamilyDoc = key; state.activeFamily = f.name; requestFamilyDetail(key, f.name); };
+                btn.onclick = () => { state.activeFamilyDoc = key; state.activeFamily = f.name; requestFamilyDetail(info.path, f.name); };
                 if (state.activeFamilyDoc === key && state.activeFamily === f.name) btn.classList.add('is-active');
                 li.append(btn);
                 famList.append(li);
@@ -498,10 +505,11 @@ export function renderGuid(root) {
 
     function requestFamilyDetail(rvtPath, familyName) {
         if (!state.includeFamily || !familyName) return;
+        if (!state.runId) { toast('실행 정보(runId)가 없습니다. 다시 실행하세요.', 'warn'); return; }
         state.family = { columns: [], rows: [] };
         paintFamily();
         ProgressDialog.show('GUID Audit', '패밀리 데이터를 불러오는 중…');
-        post('guid:request-family-detail', { rvtPath, familyName });
+        post('guid:request-family-detail', { runId: state.runId, rvtPath, familyName });
     }
 
     function paintVirtualRows(tbody, columns, rows, hidden) {
@@ -650,7 +658,7 @@ export function renderGuid(root) {
 
     function updateTabCounts() {
         setTabCount(btnTabProject, state.project.rows.length || 0);
-        setTabCount(btnTabFamily, state.family.rows.length || 0);
+        setTabCount(btnTabFamily, state.familyIndex.length || 0);
     }
 }
 

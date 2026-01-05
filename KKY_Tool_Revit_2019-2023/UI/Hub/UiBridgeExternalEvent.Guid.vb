@@ -6,6 +6,7 @@ Imports System.Collections.Generic
 Imports System.Data
 Imports System.IO
 Imports System.Linq
+Imports System.Web.Script.Serialization
 Imports System.Windows.Forms
 Imports Autodesk.Revit.UI
 Imports KKY_Tool_Revit.Services
@@ -18,6 +19,7 @@ Namespace UI.Hub
         Private _guidFamilyIndex As List(Of GuidFamilyIndexItem) = Nothing
         Private _guidFamilyLookup As Dictionary(Of String, DataTable) = Nothing
         Private _guidIncludeFamily As Boolean = False
+        Private _guidRunId As String = String.Empty
 
         ' -----------------------------
         ' 핸들러
@@ -80,6 +82,7 @@ Namespace UI.Hub
                 _guidFamilyIndex = Nothing
                 _guidFamilyLookup = Nothing
                 _guidIncludeFamily = includeFamily
+                _guidRunId = String.Empty
 
                 Dim res = GuidAuditService.Run(app, includeFamily, rvtPaths, AddressOf ReportGuidProgress,
                                                Sub(msg As String)
@@ -91,6 +94,7 @@ Namespace UI.Hub
                 _guidFamilyIndex = res.FamilyIndex
                 _guidFamilyLookup = res.FamilyLookup
                 _guidIncludeFamily = res.IncludeFamily
+                _guidRunId = res.RunId
 
                 Dim payloadProject = ShapeTable(_guidProject, Nothing)
                 Dim payloadFamilyIndex As Object = Nothing
@@ -98,24 +102,34 @@ Namespace UI.Hub
                     payloadFamilyIndex = _guidFamilyIndex
                 End If
 
+                Dim jsonLen As Integer = 0
                 Try
                     Dim donePayload = New With {
+                        .runId = _guidRunId,
                         .includeFamily = _guidIncludeFamily,
                         .project = payloadProject,
                         .familyIndex = payloadFamilyIndex
                     }
+                    Try
+                        Dim ser As New JavaScriptSerializer()
+                        Dim js = ser.Serialize(donePayload)
+                        jsonLen = If(js Is Nothing, 0, js.Length)
+                    Catch
+                        jsonLen = 0
+                    End Try
                     SendToWeb("guid:done", donePayload)
                 Catch ex As Exception
                     Dim pjCount As Integer = If(_guidProject Is Nothing, 0, _guidProject.Rows.Count)
                     Dim famCount As Integer = If(_guidFamilyLookup Is Nothing, 0, _guidFamilyLookup.Sum(Function(kv) If(kv.Value Is Nothing, 0, kv.Value.Rows.Count)))
-                    Dim detail = New With {
+                    SendToWeb("guid:error", New With {
                         .type = ex.GetType().Name,
                         .message = ex.Message,
+                        .hresult = ex.HResult,
                         .stack = ex.ToString(),
                         .projectRowsCount = pjCount,
-                        .familyRowsCount = famCount
-                    }
-                    SendToWeb("guid:error", detail)
+                        .familyRowsCount = famCount,
+                        .jsonLength = jsonLen
+                    })
                 End Try
             Catch ex As Exception
                 Dim pjCount As Integer = If(_guidProject Is Nothing, 0, _guidProject.Rows.Count)
@@ -123,6 +137,7 @@ Namespace UI.Hub
                 SendToWeb("guid:error", New With {
                     .type = ex.GetType().Name,
                     .message = ex.Message,
+                    .hresult = ex.HResult,
                     .stack = ex.ToString(),
                     .projectRowsCount = pjCount,
                     .familyRowsCount = famCount
@@ -170,6 +185,7 @@ Namespace UI.Hub
         Private Sub HandleGuidRequestFamilyDetail(app As UIApplication, payload As Object)
             Dim rvtPath As String = ""
             Dim famName As String = ""
+            Dim runId As String = ""
             Try
                 rvtPath = Convert.ToString(GetProp(payload, "rvtPath"))
             Catch
@@ -180,30 +196,42 @@ Namespace UI.Hub
             Catch
                 famName = ""
             End Try
+            Try
+                runId = Convert.ToString(GetProp(payload, "runId"))
+            Catch
+                runId = ""
+            End Try
 
             If String.IsNullOrWhiteSpace(famName) Then
                 SendToWeb("guid:error", New With {.message = "familyName이 비어 있습니다."})
                 Return
             End If
 
-            Dim key As String = GuidAuditService.BuildFamilyKey(rvtPath, famName)
-            Dim dt As DataTable = Nothing
-            If _guidFamilyLookup IsNot Nothing AndAlso _guidFamilyLookup.TryGetValue(key, dt) Then
-                Dim shaped = ShapeTable(dt, New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {"RvtPath"})
+            If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _guidRunId, StringComparison.OrdinalIgnoreCase) Then
+                SendToWeb("guid:error", New With {.message = "stale request: runId mismatch", .runId = runId, .expected = _guidRunId})
+                Return
+            End If
+
+            Dim dt As DataTable = GuidAuditService.GetCachedFamilyDetail(runId, rvtPath, famName)
+            If dt Is Nothing Then
                 SendToWeb("guid:family-detail", New With {
-                    .rvtPath = rvtPath,
-                    .familyName = famName,
-                    .columns = shaped.columns,
-                    .rows = shaped.rows
-                })
-            Else
-                SendToWeb("guid:family-detail", New With {
+                    .runId = runId,
                     .rvtPath = rvtPath,
                     .familyName = famName,
                     .columns = New List(Of String)(),
                     .rows = New List(Of Object())()
                 })
+                Return
             End If
+
+            Dim shaped = ShapeTable(dt, New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {"RvtPath"})
+            SendToWeb("guid:family-detail", New With {
+                .runId = runId,
+                .rvtPath = rvtPath,
+                .familyName = famName,
+                .columns = shaped.columns,
+                .rows = shaped.rows
+            })
         End Sub
 
         Private Function ShapeTable(dt As DataTable, skipCols As HashSet(Of String)) As Object

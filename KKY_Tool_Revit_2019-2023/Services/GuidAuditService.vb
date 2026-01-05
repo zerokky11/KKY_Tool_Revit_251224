@@ -25,11 +25,18 @@ Namespace Services
         End Sub
 
         Public Class RunResult
+            Public Property RunId As String
             Public Property IncludeFamily As Boolean
             Public Property Project As DataTable
             Public Property FamilyIndex As List(Of GuidFamilyIndexItem)
             Public Property FamilyLookup As Dictionary(Of String, DataTable)
         End Class
+
+        ' 마지막 실행 캐시
+        Private Shared _lastRunId As String = String.Empty
+        Private Shared _lastProject As DataTable = Nothing
+        Private Shared _lastFamilyLookup As Dictionary(Of String, DataTable) = Nothing
+        Private Shared _lastFamilyIndex As List(Of GuidFamilyIndexItem) = Nothing
 
         Private Class TargetFile
             Public Property Path As String = String.Empty
@@ -57,10 +64,12 @@ Namespace Services
                 Throw New InvalidOperationException("검토할 RVT 파일이 없습니다.")
             End If
 
+            Dim runId As String = Guid.NewGuid().ToString("N")
             Dim total As Integer = targets.Count
             Dim projectTable As DataTable = Nothing
             Dim familyLookup As Dictionary(Of String, DataTable) = Nothing
             Dim familyIndex As List(Of GuidFamilyIndexItem) = Nothing
+            Dim docSharedMap As Dictionary(Of String, List(Of Guid)) = Nothing
 
             For i As Integer = 0 To total - 1
                 Dim target = targets(i)
@@ -89,7 +98,9 @@ Namespace Services
                 Dim captureIndex As Integer = i
                 Dim captureName As String = rvtName
 
-                Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, rvtName, target.Path,
+                docSharedMap = BuildDocSharedGuidMap(doc)
+
+                Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, docSharedMap, rvtName, target.Path,
                                                              Function(cur, tot) As Object
                                                                  Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
                                                                  ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 프로젝트 파라미터 ({cur}/{tot})")
@@ -129,7 +140,22 @@ Namespace Services
                 End Try
             Next
 
+            Dim aggregatedFamily As DataTable = Nothing
+            If includeFamily AndAlso familyLookup IsNot Nothing Then
+                For Each kv In familyLookup
+                    If kv.Value Is Nothing Then Continue For
+                    aggregatedFamily = MergeTable(aggregatedFamily, kv.Value)
+                Next
+                familyIndex = BuildFamilyIndex(familyLookup, aggregatedFamily)
+            End If
+
+            _lastRunId = runId
+            _lastProject = If(projectTable, Auditors.MakeProjectTable())
+            _lastFamilyLookup = If(includeFamily, familyLookup, Nothing)
+            _lastFamilyIndex = If(includeFamily, familyIndex, Nothing)
+
             Dim res As New RunResult() With {
+                .RunId = runId,
                 .IncludeFamily = includeFamily,
                 .Project = If(projectTable, Auditors.MakeProjectTable()),
                 .FamilyIndex = If(includeFamily, familyIndex, Nothing),
@@ -177,6 +203,32 @@ Namespace Services
 
             Dim defaultFileName As String = $"GUID_Audit_{DateTime.Now:yyyyMMdd_HHmm}.xlsx"
             Return ExcelCore.PickAndSaveXlsx(tables, defaultFileName, doAutoFit, progressChannel)
+        End Function
+
+        Public Shared Function GetCachedFamilyDetail(runId As String, rvtPath As String, familyName As String) As DataTable
+            If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _lastRunId, StringComparison.OrdinalIgnoreCase) Then
+                Return Nothing
+            End If
+            Dim key As String = BuildFamilyKey(rvtPath, familyName)
+            Dim dt As DataTable = Nothing
+            If _lastFamilyLookup IsNot Nothing AndAlso _lastFamilyLookup.TryGetValue(key, dt) Then
+                Return dt
+            End If
+            Return Nothing
+        End Function
+
+        Public Shared Function GetCachedFamilyIndex(runId As String) As List(Of GuidFamilyIndexItem)
+            If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _lastRunId, StringComparison.OrdinalIgnoreCase) Then
+                Return Nothing
+            End If
+            Return _lastFamilyIndex
+        End Function
+
+        Public Shared Function GetCachedProject(runId As String) As DataTable
+            If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _lastRunId, StringComparison.OrdinalIgnoreCase) Then
+                Return Nothing
+            End If
+            Return _lastProject
         End Function
 
         Private Shared Function CloneWithoutColumn(dt As DataTable, columnName As String) As DataTable
@@ -280,6 +332,76 @@ Namespace Services
                 master.Add(item)
             Next
             Return master
+        End Function
+
+        Private Shared Function BuildDocSharedGuidMap(doc As Document) As Dictionary(Of String, List(Of Guid))
+            Dim map As New Dictionary(Of String, List(Of Guid))(StringComparer.OrdinalIgnoreCase)
+            If doc Is Nothing Then Return map
+            Try
+                Dim col = New FilteredElementCollector(doc).OfClass(GetType(SharedParameterElement)).Cast(Of SharedParameterElement)()
+                For Each spe In col
+                    If spe Is Nothing Then Continue For
+                    Dim def As Definition = Nothing
+                    Try
+                        def = spe.GetDefinition()
+                    Catch
+                        def = Nothing
+                    End Try
+                    Dim name As String = ""
+                    Try : If def IsNot Nothing Then name = def.Name : Catch : name = "" : End Try
+                    If String.IsNullOrWhiteSpace(name) Then Continue For
+                    Dim g As Guid = Guid.Empty
+                    Try
+                        g = spe.GuidValue
+                    Catch
+                        g = Guid.Empty
+                    End Try
+                    If g = Guid.Empty Then Continue For
+                    If Not map.ContainsKey(name) Then map(name) = New List(Of Guid)()
+                    map(name).Add(g)
+                Next
+            Catch
+            End Try
+            Return map
+        End Function
+
+        Public Shared Function BuildFamilyIndex(familyLookup As Dictionary(Of String, DataTable),
+                                                aggregated As DataTable) As List(Of GuidFamilyIndexItem)
+            If familyLookup Is Nothing OrElse familyLookup.Count = 0 Then Return New List(Of GuidFamilyIndexItem)()
+            Dim list As New List(Of GuidFamilyIndexItem)()
+            For Each kv In familyLookup
+                Dim dt = kv.Value
+                If dt Is Nothing OrElse dt.Rows.Count = 0 Then Continue For
+                Dim sample As DataRow = dt.Rows(0)
+                Dim rvtName As String = SafeStr(sample, "RvtName")
+                Dim rvtPath As String = SafeStr(sample, "RvtPath")
+                Dim famName As String = SafeStr(sample, "FamilyName")
+                Dim famCat As String = SafeStr(sample, "FamilyCategory")
+                Dim total As Integer = dt.Rows.Count
+                Dim sharedCnt As Integer = dt.AsEnumerable().Count(Function(r) String.Equals(SafeStr(r, "IsShared"), "Y", StringComparison.OrdinalIgnoreCase))
+                Dim mismatchCnt As Integer = dt.AsEnumerable().Count(Function(r) String.Equals(SafeStr(r, "Result"), "MISMATCH", StringComparison.OrdinalIgnoreCase))
+                list.Add(New GuidFamilyIndexItem() With {
+                    .RvtName = rvtName,
+                    .RvtPath = rvtPath,
+                    .FamilyName = famName,
+                    .FamilyCategory = famCat,
+                    .TotalParamCount = total,
+                    .SharedParamCount = sharedCnt,
+                    .MismatchCount = mismatchCnt
+                })
+            Next
+            Return list
+        End Function
+
+        Private Shared Function SafeStr(r As DataRow, col As String) As String
+            If r Is Nothing OrElse String.IsNullOrWhiteSpace(col) Then Return ""
+            Try
+                If r.Table.Columns.Contains(col) Then
+                    Return Convert.ToString(r(col))
+                End If
+            Catch
+            End Try
+            Return ""
         End Function
 
         Private Shared Function SafeRatio(cur As Integer, tot As Integer) As Double
@@ -546,6 +668,9 @@ Namespace Services
             Public Property RvtPath As String
             Public Property FamilyName As String
             Public Property FamilyCategory As String
+            Public Property TotalParamCount As Integer
+            Public Property SharedParamCount As Integer
+            Public Property MismatchCount As Integer
         End Class
 
         Private NotInheritable Class Auditors
@@ -593,6 +718,7 @@ Namespace Services
 
             Public Shared Function RunProjectParameterAudit(doc As Document,
                                                             fileMap As Dictionary(Of String, List(Of Guid)),
+                                                            docSharedMap As Dictionary(Of String, List(Of Guid)),
                                                             rvtName As String,
                                                             rvtPath As String,
                                                             Optional progress As Action(Of Integer, Integer) = Nothing) As DataTable
@@ -652,22 +778,29 @@ Namespace Services
                     Dim fileGuid As String = ""
                     Dim result As String = ""
                     Dim notes As String = ""
+                    Dim guidSource As String = ""
+                    Dim gProj As Guid = Guid.Empty
 
-                    Dim isShared As Boolean = TypeOf def Is ExternalDefinition
-                    If isShared Then
+                    If TryGetDefinitionGuidSafe(def, gProj, guidSource) Then
                         kind = "Shared"
-                        Dim gProj As Guid = Guid.Empty
-                        Try
-                            gProj = DirectCast(def, ExternalDefinition).GUID
-                        Catch
-                            gProj = Guid.Empty
-                        End Try
-                        projGuid = If(gProj = Guid.Empty, "", gProj.ToString())
+                    Else
+                        Dim sharedGuids As List(Of Guid) = Nothing
+                        If docSharedMap IsNot Nothing AndAlso docSharedMap.TryGetValue(name, sharedGuids) Then
+                            If sharedGuids IsNot Nothing AndAlso sharedGuids.Count > 0 Then
+                                kind = "Shared"
+                                gProj = sharedGuids(0)
+                                guidSource = "SharedParameterElement"
+                                If sharedGuids.Count > 1 Then notes = MergeNotes(notes, "동일 이름 SharedParameterElement 여러 개")
+                            End If
+                        End If
+                    End If
 
+                    If String.Equals(kind, "Shared", StringComparison.OrdinalIgnoreCase) Then
+                        projGuid = If(gProj = Guid.Empty, "", gProj.ToString())
                         Dim fileGuids As List(Of Guid) = Nothing
                         If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(name, fileGuids) Then
                             fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                            If fileGuids.Count > 1 Then notes = "동일 이름 GUID 여러 개"
+                            If fileGuids.Count > 1 Then notes = MergeNotes(notes, "동일 이름 GUID 여러 개")
 
                             If gProj <> Guid.Empty AndAlso fileGuids.Any(Function(x) x = gProj) Then
                                 result = "OK"
@@ -677,6 +810,9 @@ Namespace Services
                         Else
                             result = "NOT_FOUND_IN_FILE"
                         End If
+                        If Not String.IsNullOrWhiteSpace(guidSource) Then
+                            notes = MergeNotes(notes, $"GUID Source: {guidSource}")
+                        End If
                     Else
                         result = "PROJECT_PARAM"
                     End If
@@ -685,6 +821,39 @@ Namespace Services
                 End While
 
                 Return dt
+            End Function
+
+            Private Shared Function TryGetDefinitionGuidSafe(def As Definition, ByRef g As Guid, ByRef source As String) As Boolean
+                g = Guid.Empty
+                source = ""
+                If def Is Nothing Then Return False
+                Try
+                    If TypeOf def Is ExternalDefinition Then
+                        g = DirectCast(def, ExternalDefinition).GUID
+                        source = "ExternalDefinition"
+                        If g <> Guid.Empty Then Return True
+                    End If
+                Catch
+                End Try
+                Try
+                    Dim p = def.GetType().GetProperty("GUID", BindingFlags.Public Or BindingFlags.Instance)
+                    If p IsNot Nothing Then
+                        Dim v = p.GetValue(def, Nothing)
+                        If v IsNot Nothing AndAlso TypeOf v Is Guid Then
+                            g = DirectCast(v, Guid)
+                            source = "Definition.GUID"
+                            If g <> Guid.Empty Then Return True
+                        End If
+                    End If
+                Catch
+                End Try
+                Return False
+            End Function
+
+            Private Shared Function MergeNotes(existing As String, addition As String) As String
+                If String.IsNullOrWhiteSpace(existing) Then Return addition
+                If String.IsNullOrWhiteSpace(addition) Then Return existing
+                Return $"{existing}; {addition}"
             End Function
 
             Public Shared Function RunFamilyAudit(doc As Document,
