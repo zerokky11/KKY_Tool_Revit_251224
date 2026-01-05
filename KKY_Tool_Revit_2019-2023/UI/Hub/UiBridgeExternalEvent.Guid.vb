@@ -20,6 +20,7 @@ Namespace UI.Hub
         Private _guidFamilyLookup As Dictionary(Of String, DataTable) = Nothing
         Private _guidIncludeFamily As Boolean = False
         Private _guidRunId As String = String.Empty
+        Private _guidFamilyDetailTable As DataTable = Nothing
 
         ' -----------------------------
         ' 핸들러
@@ -93,6 +94,7 @@ Namespace UI.Hub
                 _guidFamilyLookup = Nothing
                 _guidIncludeFamily = includeFamily
                 _guidRunId = String.Empty
+                _guidFamilyDetailTable = Nothing
 
                 Dim res = GuidAuditService.Run(app, includeFamily, includeAnnotation, rvtPaths, AddressOf ReportGuidProgress,
                                                Sub(msg As String)
@@ -105,6 +107,7 @@ Namespace UI.Hub
                 _guidFamilyLookup = res.FamilyLookup
                 _guidIncludeFamily = res.IncludeFamily
                 _guidRunId = res.RunId
+                _guidFamilyDetailTable = GuidAuditService.GetCachedFamilyDetailTable(res.RunId)
 
                 Dim payloadProject = ShapeTable(_guidProject, Nothing)
                 Dim payloadFamilyIndex As Object = Nothing
@@ -131,6 +134,8 @@ Namespace UI.Hub
                 Catch ex As Exception
                     Dim pjCount As Integer = If(_guidProject Is Nothing, 0, _guidProject.Rows.Count)
                     Dim famCount As Integer = If(_guidFamilyLookup Is Nothing, 0, _guidFamilyLookup.Sum(Function(kv) If(kv.Value Is Nothing, 0, kv.Value.Rows.Count)))
+                    Dim famDetailCount As Integer = If(_guidFamilyDetailTable Is Nothing, 0, _guidFamilyDetailTable.Rows.Count)
+                    Dim famIndexCount As Integer = If(_guidFamilyIndex Is Nothing, 0, _guidFamilyIndex.Count)
                     SendToWeb("guid:error", New With {
                         .type = ex.GetType().Name,
                         .message = ex.Message,
@@ -138,6 +143,8 @@ Namespace UI.Hub
                         .stack = ex.ToString(),
                         .projectRowsCount = pjCount,
                         .familyRowsCount = famCount,
+                        .familyDetailRowsCount = famDetailCount,
+                        .familyIndexRowsCount = famIndexCount,
                         .jsonLength = jsonLen
                     })
                 End Try
@@ -150,7 +157,9 @@ Namespace UI.Hub
                     .hresult = ex.HResult,
                     .stack = ex.ToString(),
                     .projectRowsCount = pjCount,
-                    .familyRowsCount = famCount
+                    .familyRowsCount = famCount,
+                    .familyDetailRowsCount = If(_guidFamilyDetailTable Is Nothing, 0, _guidFamilyDetailTable.Rows.Count),
+                    .familyIndexRowsCount = If(_guidFamilyIndex Is Nothing, 0, _guidFamilyIndex.Count)
                 })
             Finally
                 ReportGuidProgress(0, String.Empty)

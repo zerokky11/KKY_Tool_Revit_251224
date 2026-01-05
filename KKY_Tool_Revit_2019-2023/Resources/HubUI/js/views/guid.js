@@ -170,7 +170,6 @@ export function renderGuid(root) {
         const famIndex = Array.isArray(payload?.familyIndex) ? payload.familyIndex : [];
         state.runId = payload?.runId || '';
         state.includeFamily = !!payload?.includeFamily;
-        state.includeAnnotation = false;
         state.project = {
             columns: Array.isArray(proj.columns) ? proj.columns : [],
             rows: Array.isArray(proj.rows) ? proj.rows : []

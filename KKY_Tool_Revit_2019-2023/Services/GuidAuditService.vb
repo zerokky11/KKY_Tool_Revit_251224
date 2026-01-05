@@ -37,6 +37,7 @@ Namespace Services
         Private Shared _lastProject As DataTable = Nothing
         Private Shared _lastFamilyLookup As Dictionary(Of String, DataTable) = Nothing
         Private Shared _lastFamilyIndex As List(Of GuidFamilyIndexItem) = Nothing
+        Private Shared _lastFamilyDetailTable As DataTable = Nothing
 
         Private Class TargetFile
             Public Property Path As String = String.Empty
@@ -154,6 +155,7 @@ Namespace Services
             _lastProject = If(projectTable, Auditors.MakeProjectTable())
             _lastFamilyLookup = If(includeFamily, familyLookup, Nothing)
             _lastFamilyIndex = If(includeFamily, familyIndex, Nothing)
+            _lastFamilyDetailTable = If(includeFamily, aggregatedFamily, Nothing)
 
             Dim res As New RunResult() With {
                 .RunId = runId,
@@ -215,6 +217,16 @@ Namespace Services
             If _lastFamilyLookup IsNot Nothing AndAlso _lastFamilyLookup.TryGetValue(key, dt) Then
                 Return dt
             End If
+            If _lastFamilyDetailTable IsNot Nothing Then
+                Dim clone As DataTable = _lastFamilyDetailTable.Clone()
+                Dim rows = _lastFamilyDetailTable.AsEnumerable().
+                    Where(Function(r) String.Equals(SafeStr(r, "RvtPath"), rvtPath, StringComparison.OrdinalIgnoreCase) AndAlso
+                                      String.Equals(SafeStr(r, "FamilyName"), familyName, StringComparison.OrdinalIgnoreCase)))
+                For Each r In rows
+                    clone.ImportRow(r)
+                Next
+                If clone.Rows.Count > 0 Then Return clone
+            End If
             Return Nothing
         End Function
 
@@ -230,6 +242,13 @@ Namespace Services
                 Return Nothing
             End If
             Return _lastProject
+        End Function
+
+        Public Shared Function GetCachedFamilyDetailTable(runId As String) As DataTable
+            If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _lastRunId, StringComparison.OrdinalIgnoreCase) Then
+                Return Nothing
+            End If
+            Return _lastFamilyDetailTable
         End Function
 
         Private Shared Function CloneWithoutColumn(dt As DataTable, columnName As String) As DataTable
@@ -782,7 +801,7 @@ Namespace Services
                     Dim guidSource As String = ""
                     Dim gProj As Guid = Guid.Empty
 
-                    If TryGetDefinitionGuidSafe(def, gProj, guidSource) Then
+                    If TryGetDefinitionGuidSafe(def, doc, gProj, guidSource) Then
                         kind = "Shared"
                     Else
                         Dim sharedGuids As List(Of Guid) = Nothing
@@ -824,7 +843,7 @@ Namespace Services
                 Return dt
             End Function
 
-            Private Shared Function TryGetDefinitionGuidSafe(def As Definition, ByRef g As Guid, ByRef source As String) As Boolean
+            Private Shared Function TryGetDefinitionGuidSafe(def As Definition, doc As Document, ByRef g As Guid, ByRef source As String) As Boolean
                 g = Guid.Empty
                 source = ""
                 If def Is Nothing Then Return False
@@ -844,6 +863,21 @@ Namespace Services
                             g = DirectCast(v, Guid)
                             source = "Definition.GUID"
                             If g <> Guid.Empty Then Return True
+                        End If
+                    End If
+                Catch
+                End Try
+                Try
+                    Dim pid = def.GetType().GetProperty("Id", BindingFlags.Public Or BindingFlags.Instance)
+                    If pid IsNot Nothing AndAlso doc IsNot Nothing Then
+                        Dim idObj = pid.GetValue(def, Nothing)
+                        If TypeOf idObj Is ElementId Then
+                            Dim spe As SharedParameterElement = TryCast(doc.GetElement(DirectCast(idObj, ElementId)), SharedParameterElement)
+                            If spe IsNot Nothing Then
+                                g = spe.GuidValue
+                                source = "Definition.Id->SharedParameterElement"
+                                If g <> Guid.Empty Then Return True
+                            End If
                         End If
                     End If
                 Catch
