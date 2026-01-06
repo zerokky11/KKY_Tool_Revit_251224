@@ -111,12 +111,12 @@ Namespace Services
                 projectTable = MergeTable(projectTable, proj)
 
                 If includeFamily Then
-                    Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path, includeAnnotation,
-                                                          Function(cur, tot, famName) As Object
-                                                              Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
-                                                              ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
-                                                              Return Nothing
-                                                          End Function)
+                    Dim famPack = Auditors.RunFamilyAudit(doc, defMap, includeAnnotation, rvtName, target.Path,
+                                                              Function(cur, tot, famName) As Object
+                                                                  Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
+                                                                  ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
+                                                                  Return Nothing
+                                                              End Function)
                     If famPack IsNot Nothing Then
                         familyLookup = MergeFamilyLookup(familyLookup, famPack.DetailByFamily)
                         familyIndex = MergeFamilyIndex(familyIndex, famPack.Index)
@@ -221,7 +221,7 @@ Namespace Services
                 Dim clone As DataTable = _lastFamilyDetailTable.Clone()
                 Dim rows = _lastFamilyDetailTable.Rows.Cast(Of DataRow)().
                     Where(Function(r) String.Equals(SafeStr(r, "RvtPath"), rvtPath, StringComparison.OrdinalIgnoreCase) AndAlso
-                                      String.Equals(SafeStr(r, "FamilyName"), familyName, StringComparison.OrdinalIgnoreCase)))
+                                      String.Equals(SafeStr(r, "FamilyName"), familyName, StringComparison.OrdinalIgnoreCase))
                 For Each r In rows
                     clone.ImportRow(r)
                 Next
