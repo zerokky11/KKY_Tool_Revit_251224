@@ -21,29 +21,42 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px;
+  padding: 8px 10px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-soft);
   background: var(--surface-subtle);
 }
 
-.guid-mode .mode-btn {
-  padding: 8px 12px;
-  border-radius: var(--radius-pill);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-soft);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .12s ease;
-  white-space: nowrap;
+.guid-mode-base .mode-title {
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
 }
 
-.guid-mode .mode-btn.is-active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  box-shadow: 0 6px 14px -10px var(--accent);
+.guid-mode-base .mode-sub {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.guid-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px dashed var(--border-soft);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.guid-mode-option.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.guid-mode-option input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 
 .guid-excelmode {
@@ -142,6 +155,11 @@
   display: none;
 }
 
+.guid-tab-panel.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .guid-detail-wrap {
   flex: 1 1 auto;
   display: grid;
@@ -149,6 +167,11 @@
   gap: 12px;
   min-height: 280px;
   align-items: stretch;
+}
+
+.guid-detail-wrap.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 @media (max-width: 1160px) {
@@ -196,6 +219,11 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.guid-nav-empty {
+  color: var(--text-dim);
+  font-size: 13px;
 }
 
 .guid-nav-doc + .guid-nav-doc {
@@ -246,6 +274,43 @@
 .guid-detail-pane {
   flex: 1;
   min-width: 0;
+}
+
+.guid-family-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.guid-filter-label {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.seg-btn {
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border-soft);
+}
+
+.seg-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
 }
 
 .path-cell {

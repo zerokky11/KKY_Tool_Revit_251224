@@ -915,11 +915,8 @@ Friend Module Auditors
                     Dim isSharedBool As Boolean = False
                     Try : isSharedBool = fp.IsShared : Catch : isSharedBool = False : End Try
 
-                    Dim paramGroup As String = ""
-                    Try : paramGroup = fp.Definition.ParameterGroup.ToString() : Catch : paramGroup = "" : End Try
-
-                    Dim paramType As String = ""
-                    Try : paramType = fp.Definition.ParameterType.ToString() : Catch : paramType = "" : End Try
+                    Dim paramGroup As String = GetParamGroupLabel(fp.Definition)
+                    Dim paramType As String = GetParamTypeLabel(fp.Definition)
 
                     Dim isInst As String = ""
                     Try : isInst = If(fp.IsInstance, "Y", "N") : Catch : isInst = "" : End Try
@@ -1047,6 +1044,70 @@ Friend Module Auditors
         End If
 
         Return False
+    End Function
+
+    Private Function GetParamGroupLabel(def As Definition) As String
+        If def Is Nothing Then Return ""
+
+#If REVIT2025 Then
+        Try
+            Dim groupId As ForgeTypeId = def.GetGroupTypeId()
+            If groupId IsNot Nothing Then
+                Try
+                    Dim label = LabelUtils.GetLabelForGroupTypeId(groupId)
+                    If Not String.IsNullOrWhiteSpace(label) Then Return label
+                Catch
+                End Try
+
+                Try
+                    Dim tid As String = groupId.TypeId
+                    If Not String.IsNullOrWhiteSpace(tid) Then Return tid
+                Catch
+                End Try
+
+                Return groupId.ToString()
+            End If
+        Catch
+        End Try
+#End If
+
+        Try
+            Return def.ParameterGroup.ToString()
+        Catch
+            Return ""
+        End Try
+    End Function
+
+    Private Function GetParamTypeLabel(def As Definition) As String
+        If def Is Nothing Then Return ""
+
+#If REVIT2025 Then
+        Try
+            Dim dataType As ForgeTypeId = def.GetDataType()
+            If dataType IsNot Nothing Then
+                Try
+                    Dim label = LabelUtils.GetLabelForSpec(dataType)
+                    If Not String.IsNullOrWhiteSpace(label) Then Return label
+                Catch
+                End Try
+
+                Try
+                    Dim tid As String = dataType.TypeId
+                    If Not String.IsNullOrWhiteSpace(tid) Then Return tid
+                Catch
+                End Try
+
+                Return dataType.ToString()
+            End If
+        Catch
+        End Try
+#End If
+
+        Try
+            Return def.ParameterType.ToString()
+        Catch
+            Return ""
+        End Try
     End Function
 
 End Module
