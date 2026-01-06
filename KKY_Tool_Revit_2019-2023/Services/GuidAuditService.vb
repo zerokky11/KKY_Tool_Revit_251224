@@ -219,7 +219,7 @@ Namespace Services
             End If
             If _lastFamilyDetailTable IsNot Nothing Then
                 Dim clone As DataTable = _lastFamilyDetailTable.Clone()
-                Dim rows = _lastFamilyDetailTable.AsEnumerable().
+                Dim rows = _lastFamilyDetailTable.Rows.Cast(Of DataRow)().
                     Where(Function(r) String.Equals(SafeStr(r, "RvtPath"), rvtPath, StringComparison.OrdinalIgnoreCase) AndAlso
                                       String.Equals(SafeStr(r, "FamilyName"), familyName, StringComparison.OrdinalIgnoreCase)))
                 For Each r In rows
@@ -407,8 +407,8 @@ Namespace Services
                 Dim famName As String = SafeStr(sample, "FamilyName")
                 Dim famCat As String = SafeStr(sample, "FamilyCategory")
                 Dim total As Integer = dt.Rows.Count
-                Dim sharedCnt As Integer = dt.AsEnumerable().Count(Function(r) String.Equals(SafeStr(r, "IsShared"), "Y", StringComparison.OrdinalIgnoreCase))
-                Dim mismatchCnt As Integer = dt.AsEnumerable().Count(Function(r) String.Equals(SafeStr(r, "Result"), "MISMATCH", StringComparison.OrdinalIgnoreCase))
+                Dim sharedCnt As Integer = dt.Rows.Cast(Of DataRow)().Count(Function(r) String.Equals(SafeStr(r, "IsShared"), "Y", StringComparison.OrdinalIgnoreCase))
+                Dim mismatchCnt As Integer = dt.Rows.Cast(Of DataRow)().Count(Function(r) String.Equals(SafeStr(r, "Result"), "MISMATCH", StringComparison.OrdinalIgnoreCase))
                 list.Add(New GuidFamilyIndexItem() With {
                     .RvtName = rvtName,
                     .RvtPath = rvtPath,
@@ -1184,11 +1184,12 @@ Namespace Services
 
         End Class
 
-    End Class
-
-End Namespace
         Public Shared Function BuildFamilyKey(rvtPath As String, familyName As String) As String
             Dim pathPart As String = If(rvtPath, "")
             Dim famPart As String = If(familyName, "")
             Return $"{pathPart}|{famPart}"
         End Function
+
+    End Class
+
+End Namespace
