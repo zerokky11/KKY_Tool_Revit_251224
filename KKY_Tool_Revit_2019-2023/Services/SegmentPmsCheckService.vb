@@ -125,7 +125,7 @@ Namespace Services
             For Each p As String In valid
                 Dim doc As RvtDB.Document = Nothing
                 Try
-                    Dim opt = BuildOpenOptions(options)
+                    Dim opt = BuildOpenOptions(options, p)
                     Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(p)
                     doc = appObj.OpenDocumentFile(mp, opt)
 
@@ -589,20 +589,40 @@ Namespace Services
         ' ---------------------------
         ' Helpers
         ' ---------------------------
-        Private Shared Function BuildOpenOptions(opts As ExtractOptions) As OpenOptions
+        Private Shared Function BuildOpenOptions(opts As ExtractOptions, filePath As String) As OpenOptions
             Dim opt As New OpenOptions()
-            If opts Is Nothing Then
-                opt.DetachFromCentralOption = DetachFromCentralOption.DoNotDetach
-                opt.Audit = False
-                opt.AllowOpeningLocalByWrongUser = True
-                Return opt
-            End If
-
-            opt.DetachFromCentralOption = If(opts.DetachFromCentral, DetachFromCentralOption.DetachAndPreserveWorksets, DetachFromCentralOption.DoNotDetach)
             opt.Audit = False
             opt.AllowOpeningLocalByWrongUser = True
+            opt.DetachFromCentralOption = DetachFromCentralOption.DoNotDetach
+
+            If opts IsNot Nothing Then
+                opt.DetachFromCentralOption = If(opts.DetachFromCentral, DetachFromCentralOption.DetachAndPreserveWorksets, DetachFromCentralOption.DoNotDetach)
+            End If
+
+            ApplyWorksetConfiguration(opt, filePath)
+
             Return opt
         End Function
+
+        Private Shared Sub ApplyWorksetConfiguration(opt As OpenOptions, filePath As String)
+            If opt Is Nothing Then
+                Return
+            End If
+
+            If String.IsNullOrWhiteSpace(filePath) Then
+                Return
+            End If
+
+            Try
+                Dim fileInfo = BasicFileInfo.Extract(filePath)
+                If fileInfo IsNot Nothing AndAlso fileInfo.IsWorkshared Then
+                    Dim wsConfig As New WorksetConfiguration(WorksetConfigurationOption.CloseAllWorksets)
+                    opt.SetOpenWorksetsConfiguration(wsConfig)
+                End If
+            Catch
+                ' 워크셰어링 여부 확인 실패는 무시하고 기본 옵션으로 계속 진행
+            End Try
+        End Sub
 
         Private Shared Function BuildMetaTable() As DataTable
             Dim t As New DataTable(TableMeta)
