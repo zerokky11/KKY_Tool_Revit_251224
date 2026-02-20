@@ -33,10 +33,13 @@
   <ItemGroup>
     <Compile Include="App.cs" />
     <Compile Include="Commands\CmdOpenHub.cs" />
+    <Compile Include="Exports\PointsExport.cs" />
     <Compile Include="Infrastructure\SharedParamReader.cs" />
+    <Compile Include="Services\ExportPointsService.cs" />
     <Compile Include="Services\GuidAuditService.cs" />
     <Compile Include="UI\Hub\HubHostWindow.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Core.cs" />
+    <Compile Include="UI\Hub\UiBridgeExternalEvent.Export.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Guid.cs" />
   </ItemGroup>
 
