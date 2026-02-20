@@ -31,7 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="App.cs" />
+    <Compile Include="APP.cs" />
     <Compile Include="Commands\CmdOpenHub.cs" />
     <Compile Include="Exports\DuplicateExport.cs" />
     <Compile Include="Exports\ConnectorExport.cs" />
@@ -44,11 +44,15 @@
     <Compile Include="Services\ConnectorDiagnosticsService.cs" />
     <Compile Include="Services\ExportPointsService.cs" />
     <Compile Include="Services\GuidAuditService.cs" />
+    <Compile Include="Services\SegmentPmsCheckService.cs" />
+    <Compile Include="Services\ParamPropagateService.cs" />
     <Compile Include="UI\Hub\HubHostWindow.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Core.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Connector.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Duplicate.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Export.cs" />
+    <Compile Include="UI\Hub\UiBridgeExternalEvent.ParamProp.cs" />
+    <Compile Include="UI\Hub\UiBridgeExternalEvent.SegmentPms.cs" />
     <Compile Include="UI\Hub\UiBridgeExternalEvent.Guid.cs" />
   </ItemGroup>
 
