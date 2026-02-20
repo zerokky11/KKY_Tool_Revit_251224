@@ -35,6 +35,9 @@
     <Compile Include="Commands\CmdOpenHub.cs" />
     <Compile Include="Exports\DuplicateExport.cs" />
     <Compile Include="Exports\PointsExport.cs" />
+    <Compile Include="Infrastructure\ElementIdCompat.cs" />
+    <Compile Include="Infrastructure\ExcelCore.cs" />
+    <Compile Include="Infrastructure\ResourceExtractor.cs" />
     <Compile Include="Infrastructure\SharedParamReader.cs" />
     <Compile Include="Services\DuplicateAnalysisService.cs" />
     <Compile Include="Services\ExportPointsService.cs" />
